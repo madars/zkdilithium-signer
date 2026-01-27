@@ -224,3 +224,53 @@ func Decompose(r uint32) (r0 int32, r1 uint32) {
 	}
 	return r0, (r - uint32(r0)) / (2 * Gamma2)
 }
+
+// --- Montgomery Multiplication ---
+// Montgomery form: a_M = a * R mod Q where R = 2^32
+// MulMont(a_M, b) = a * b (normal form) - useful when one operand is precomputed
+// MulMont(a_M, b_M) = (a * b)_M (Montgomery form)
+
+const (
+	// montgomeryQInvNeg = -Q^(-1) mod 2^32
+	// Satisfies: Q * montgomeryQInvNeg ≡ -1 (mod 2^32)
+	montgomeryQInvNeg uint32 = 7340031
+)
+
+// MulMont computes Montgomery reduction of a*b.
+// If a is in Montgomery form (a_M = a*R mod Q) and b is normal:
+//
+//	MulMont(a_M, b) = a * b (normal form)
+//
+// If both are in Montgomery form:
+//
+//	MulMont(a_M, b_M) = (a * b)_M (Montgomery form)
+func MulMont(a, b uint32) uint32 {
+	// t = a * b
+	t := uint64(a) * uint64(b)
+
+	// m = (t_lo * Q') mod 2^32
+	m := uint32(t) * montgomeryQInvNeg
+
+	// u = (t + m*Q) >> 32
+	u := (t + uint64(m)*Q) >> 32
+
+	// Conditional subtraction
+	if u >= Q {
+		u -= Q
+	}
+	return uint32(u)
+}
+
+// ToMont converts a to Montgomery form: a_M = a * R mod Q
+func ToMont(a uint32) uint32 {
+	// a * R mod Q = a * 2^32 mod Q
+	// We compute this as MulMont(a, R^2 mod Q)
+	// R^2 mod Q = 2^64 mod 7340033 = 3338324
+	const r2ModQ = 3338324
+	return MulMont(a, r2ModQ)
+}
+
+// FromMont converts from Montgomery form: a = a_M * R^(-1) mod Q
+func FromMont(aM uint32) uint32 {
+	return MulMont(aM, 1)
+}

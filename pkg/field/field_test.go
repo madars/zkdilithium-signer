@@ -313,3 +313,49 @@ func TestBatchInvPosT(t *testing.T) {
 		}
 	}
 }
+
+// Test Montgomery multiplication roundtrip
+func TestMontgomeryRoundtrip(t *testing.T) {
+	testCases := []uint32{0, 1, 2, 42, 1000, 123456, Q - 1, Q - 2}
+	for _, a := range testCases {
+		aM := ToMont(a)
+		got := FromMont(aM)
+		if got != a {
+			t.Errorf("FromMont(ToMont(%d)) = %d, want %d", a, got, a)
+		}
+	}
+}
+
+// Test MulMont matches regular Mul
+func TestMulMontMatchesMul(t *testing.T) {
+	testCases := []struct{ a, b uint32 }{
+		{1, 1}, {2, 3}, {42, 100}, {1000, 12345}, {Q - 1, Q - 2},
+	}
+	for _, tc := range testCases {
+		// MulMont(a_M, b) = a * b (normal)
+		aM := ToMont(tc.a)
+		got := MulMont(aM, tc.b)
+		want := Mul(tc.a, tc.b)
+		if got != want {
+			t.Errorf("MulMont(ToMont(%d), %d) = %d, want %d", tc.a, tc.b, got, want)
+		}
+	}
+}
+
+// Test Montgomery multiplication associativity
+func TestMulMontAssociativity(t *testing.T) {
+	a, b, c := uint32(123), uint32(456), uint32(789)
+
+	// (a * b) * c using regular mul
+	want := Mul(Mul(a, b), c)
+
+	// Using Montgomery: a_M * b -> ab, then ab * c_M -> abc (needs c_M)
+	aM := ToMont(a)
+	ab := MulMont(aM, b)  // a * b (normal)
+	abM := ToMont(ab)     // (a*b)_M
+	abc := MulMont(abM, c) // a * b * c (normal)
+
+	if abc != want {
+		t.Errorf("Montgomery associativity: got %d, want %d", abc, want)
+	}
+}

@@ -79,6 +79,14 @@ rejection sampling variance:
    exploiting Q-2 = 0b110\_11111111111111111111. Reduces operations from ~43
    to 30 per Inv() call.
 
+3. **Montgomery multiplication for NTT** - Precomputes zetas in Montgomery form,
+   avoiding expensive division in the NTT inner loop. Isolated NTT benchmark shows
+   ~36% improvement, though impact on Sign/Verify is marginal since Poseidon
+   dominates runtime.
+
+*Note: We evaluated Solinas/Proth reduction exploiting Q = 7·2^20 + 1, but
+Montgomery multiplication empirically outperformed it on ARM64.*
+
 Run benchmarks:
 
 ```bash
