@@ -29,9 +29,8 @@ func poseidonRound(state []uint32, r int) {
 	}
 
 	// S-box: x -> x^(-1) (modular inverse)
-	for i := 0; i < field.PosT; i++ {
-		state[i] = field.Inv(state[i])
-	}
+	// Use batch inversion for efficiency (1 inv + 3*(n-1) muls instead of n invs)
+	field.BatchInv(state)
 
 	// MDS matrix multiplication: M_ij = 1/(i+j-1)
 	old := make([]uint32, field.PosT)

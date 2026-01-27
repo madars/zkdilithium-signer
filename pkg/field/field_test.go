@@ -212,3 +212,85 @@ func TestArithmetic(t *testing.T) {
 		t.Errorf("Mod(-1) = %d, want %d", Mod(-1), Q-1)
 	}
 }
+
+// Test BatchInv correctness
+func TestBatchInv(t *testing.T) {
+	// Test with known values
+	xs := []uint32{1, 2, 3, 1000, 123456}
+	expected := make([]uint32, len(xs))
+	for i, x := range xs {
+		expected[i] = Inv(x)
+	}
+
+	BatchInv(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInv[%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInv with zeros (edge case)
+func TestBatchInvWithZeros(t *testing.T) {
+	xs := []uint32{0, 2, 0, 1000, 0}
+	expected := []uint32{0, Inv(2), 0, Inv(1000), 0}
+
+	BatchInv(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInv with zeros [%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInv property: each result is actually the inverse
+func TestBatchInvProperty(t *testing.T) {
+	original := []uint32{7, 13, 42, 1000, 123456, Q - 1, Q - 2}
+	xs := make([]uint32, len(original))
+	copy(xs, original)
+
+	BatchInv(xs)
+
+	for i, inv := range xs {
+		product := Mul(original[i], inv)
+		if product != 1 {
+			t.Errorf("BatchInv: %d * %d = %d, want 1", original[i], inv, product)
+		}
+	}
+}
+
+// Test BatchInv with single element
+func TestBatchInvSingle(t *testing.T) {
+	xs := []uint32{42}
+	expected := Inv(42)
+	BatchInv(xs)
+	if xs[0] != expected {
+		t.Errorf("BatchInv single: got %d, want %d", xs[0], expected)
+	}
+}
+
+// Test BatchInv with empty slice
+func TestBatchInvEmpty(t *testing.T) {
+	xs := []uint32{}
+	BatchInv(xs) // Should not panic
+}
+
+// Test BatchInv with PosT elements (actual use case)
+func TestBatchInvPosT(t *testing.T) {
+	xs := make([]uint32, PosT)
+	expected := make([]uint32, PosT)
+	for i := 0; i < PosT; i++ {
+		xs[i] = uint32(i + 1) // 1, 2, 3, ..., 35
+		expected[i] = Inv(xs[i])
+	}
+
+	BatchInv(xs)
+
+	for i := 0; i < PosT; i++ {
+		if xs[i] != expected[i] {
+			t.Errorf("BatchInv PosT [%d] = %d, want %d", i, xs[i], expected[i])
+		}
+	}
+}

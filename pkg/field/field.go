@@ -88,6 +88,52 @@ func Inv(a uint32) uint32 {
 	return Exp(a, Q-2)
 }
 
+// BatchInv computes the modular inverse of each element in place.
+// Uses Montgomery's trick: n inversions with 1 inversion + 3(n-1) multiplications.
+// Elements that are 0 remain 0 (since 0^(-1) is undefined, we treat it as 0).
+func BatchInv(xs []uint32) {
+	n := len(xs)
+	if n == 0 {
+		return
+	}
+
+	// Compute prefix products: prods[i] = xs[0] * xs[1] * ... * xs[i]
+	// Skip zeros by treating them as 1 in the product
+	prods := make([]uint32, n)
+	prods[0] = xs[0]
+	if prods[0] == 0 {
+		prods[0] = 1
+	}
+	for i := 1; i < n; i++ {
+		if xs[i] == 0 {
+			prods[i] = prods[i-1]
+		} else {
+			prods[i] = Mul(prods[i-1], xs[i])
+		}
+	}
+
+	// Invert the final product
+	inv := Inv(prods[n-1])
+
+	// Work backwards to compute individual inverses
+	for i := n - 1; i > 0; i-- {
+		if xs[i] == 0 {
+			// 0 stays 0
+			continue
+		}
+		// Save original value
+		oldXi := xs[i]
+		// xs[i]^(-1) = inv * prods[i-1]
+		xs[i] = Mul(inv, prods[i-1])
+		// Update inv to be prods[i-1]^(-1) = inv * oldXi
+		inv = Mul(inv, oldXi)
+	}
+	// Handle first element
+	if xs[0] != 0 {
+		xs[0] = inv
+	}
+}
+
 // Exp returns a^e mod Q using binary exponentiation.
 func Exp(a uint32, e uint32) uint32 {
 	result := uint64(1)

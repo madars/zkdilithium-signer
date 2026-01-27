@@ -63,11 +63,17 @@ This repository includes a fix for a bug in the upstream Python implementation's
 Benchmarks on Debian VM (MacBook M3 Pro host) with varied messages to capture
 rejection sampling variance:
 
-| Operation | Go | Python | Speedup |
-|-----------|-----|--------|---------|
-| Gen (keygen) | 0.10 ms | 3.1 ms | 31x |
-| Sign | 19.8 ms | 461 ms | 23x |
-| Verify | 2.9 ms | 71.5 ms | 25x |
+| Operation | Go | Go (optimized) | Python | vs Python | vs Go |
+|-----------|-----|----------------|--------|-----------|-------|
+| Gen | 0.10 ms | 0.10 ms | 3.1 ms | 31x | 1.0x |
+| Sign | 19.8 ms | 6.9 ms | 461 ms | 67x | 2.9x |
+| Verify | 2.9 ms | 1.0 ms | 71.5 ms | 72x | 2.9x |
+
+### Optimizations
+
+1. **Batch inversion for Poseidon S-box** - Uses Montgomery's trick to compute
+   n inversions with only 1 inversion + 3(n-1) multiplications, reducing
+   Poseidon overhead by ~2.9x.
 
 Run benchmarks:
 
