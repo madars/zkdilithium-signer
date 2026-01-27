@@ -356,15 +356,15 @@ func InvMont(aM uint32) uint32 {
 // All inputs and outputs are in Montgomery form.
 // Uses Montgomery's trick: n inversions with 1 inversion + 3(n-1) multiplications.
 // Elements that are 0 remain 0.
-func BatchInvMont(xs []uint32) {
+// scratch must have length >= len(xs) and is used to avoid allocation.
+func BatchInvMont(xs []uint32, scratch []uint32) {
 	n := len(xs)
 	if n == 0 {
 		return
 	}
 
-	// Compute prefix products (all in Montgomery form)
-	// Skip zeros by treating them as 1 in the product
-	prods := make([]uint32, n)
+	// Use scratch for prefix products
+	prods := scratch[:n]
 	prods[0] = xs[0]
 	if prods[0] == 0 {
 		prods[0] = ToMont(1) // 1 in Montgomery form

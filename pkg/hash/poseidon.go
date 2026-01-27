@@ -24,7 +24,8 @@ func init() {
 
 // poseidonRound applies one round of the Poseidon permutation.
 // State is in Montgomery form throughout.
-func poseidonRound(state []uint32, r int) {
+// scratch is a reusable buffer of length PosT for zero-allocation operation.
+func poseidonRound(state, scratch []uint32, r int) {
 	// Add round constants (both in Montgomery form, addition preserves form)
 	for i := 0; i < field.PosT; i++ {
 		state[i] = field.Add(state[i], PosRCsMont[field.PosT*r+i])
@@ -32,19 +33,19 @@ func poseidonRound(state []uint32, r int) {
 
 	// S-box: x -> x^(-1) in Montgomery form
 	// BatchInvMont operates directly on Montgomery form values
-	field.BatchInvMont(state)
+	field.BatchInvMont(state, scratch)
 
 	// MDS matrix multiplication: M_ij = 1/(i+j+1)
 	// Lazy reduction: accumulate products in uint64, reduce once per row
-	old := make([]uint32, field.PosT)
-	copy(old, state)
+	// Use scratch as 'old' buffer (reuse after BatchInvMont is done with it)
+	copy(scratch, state)
 	for i := 0; i < field.PosT; i++ {
 		var acc uint64
+		// Slice to help bounds check elimination
+		invSlice := PosInvMont[i : i+field.PosT]
 		for j := 0; j < field.PosT; j++ {
-			// Raw multiply, accumulate without reduction
-			acc += uint64(PosInvMont[i+j]) * uint64(old[j])
+			acc += uint64(invSlice[j]) * uint64(scratch[j])
 		}
-		// One Montgomery reduction per row
 		state[i] = field.MontReduce(acc)
 	}
 }
@@ -52,8 +53,9 @@ func poseidonRound(state []uint32, r int) {
 // PoseidonPerm applies the full Poseidon permutation to state in place.
 // State must be in Montgomery form.
 func PoseidonPerm(state []uint32) {
+	var scratch [field.PosT]uint32
 	for r := 0; r < field.PosRF; r++ {
-		poseidonRound(state, r)
+		poseidonRound(state, scratch[:], r)
 	}
 }
 
@@ -61,6 +63,7 @@ func PoseidonPerm(state []uint32) {
 // Internal state is kept in Montgomery form.
 type Poseidon struct {
 	s         [field.PosT]uint32 // Montgomery form
+	scratch   [field.PosT]uint32 // Reusable scratch buffer for zero-allocation
 	absorbing bool
 	i         int
 }
@@ -76,6 +79,13 @@ func NewPoseidon(initial []uint32) *Poseidon {
 	return p
 }
 
+// perm applies the Poseidon permutation using the internal scratch buffer.
+func (p *Poseidon) perm() {
+	for r := 0; r < field.PosRF; r++ {
+		poseidonRound(p.s[:], p.scratch[:], r)
+	}
+}
+
 // Write absorbs field elements into the sponge.
 // Input is in normal form, converted to Montgomery form internally.
 func (p *Poseidon) Write(fes []uint32) {
@@ -88,7 +98,7 @@ func (p *Poseidon) Write(fes []uint32) {
 		p.s[p.i] = field.Add(p.s[p.i], feM)
 		p.i++
 		if p.i == field.PosRate {
-			PoseidonPerm(p.s[:])
+			p.perm()
 			p.i = 0
 		}
 	}
@@ -100,7 +110,7 @@ func (p *Poseidon) Permute() {
 		panic("cannot permute after reading")
 	}
 	if p.i != 0 {
-		PoseidonPerm(p.s[:])
+		p.perm()
 		p.i = 0
 	}
 }
@@ -111,7 +121,7 @@ func (p *Poseidon) Read(n int) []uint32 {
 	if p.absorbing {
 		p.absorbing = false
 		if p.i != 0 {
-			PoseidonPerm(p.s[:])
+			p.perm()
 			p.i = 0
 		}
 	}
@@ -130,7 +140,7 @@ func (p *Poseidon) Read(n int) []uint32 {
 		p.i += toRead
 		if p.i == field.PosRate {
 			p.i = 0
-			PoseidonPerm(p.s[:])
+			p.perm()
 		}
 	}
 	return ret
@@ -154,5 +164,5 @@ func (p *Poseidon) State() *[field.PosT]uint32 {
 
 // ApplyPerm applies the Poseidon permutation to the internal state.
 func (p *Poseidon) ApplyPerm() {
-	PoseidonPerm(p.s[:])
+	p.perm()
 }

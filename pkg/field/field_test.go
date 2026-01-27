@@ -402,12 +402,13 @@ func TestBatchInvMont(t *testing.T) {
 	original := []uint32{1, 2, 3, 1000, 123456}
 	xs := make([]uint32, len(original))
 	expected := make([]uint32, len(original))
+	scratch := make([]uint32, len(original))
 	for i, x := range original {
 		xs[i] = ToMont(x)
 		expected[i] = InvMont(xs[i])
 	}
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i, want := range expected {
 		if xs[i] != want {
@@ -421,6 +422,7 @@ func TestBatchInvMontWithZeros(t *testing.T) {
 	original := []uint32{0, 2, 0, 1000, 0}
 	xs := make([]uint32, len(original))
 	expected := make([]uint32, len(original))
+	scratch := make([]uint32, len(original))
 	for i, x := range original {
 		if x == 0 {
 			xs[i] = 0
@@ -431,7 +433,7 @@ func TestBatchInvMontWithZeros(t *testing.T) {
 		}
 	}
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i, want := range expected {
 		if xs[i] != want {
@@ -445,8 +447,9 @@ func TestBatchInvMontZeroAtStart(t *testing.T) {
 	// Zero at index 0: tests the prods[0] = 1_M fallback
 	xs := []uint32{0, ToMont(2), ToMont(3)}
 	expected := []uint32{0, InvMont(ToMont(2)), InvMont(ToMont(3))}
+	scratch := make([]uint32, len(xs))
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i, want := range expected {
 		if xs[i] != want {
@@ -466,8 +469,9 @@ func TestBatchInvMontZeroInMiddle(t *testing.T) {
 		InvMont(ToMont(11)),
 		InvMont(ToMont(13)),
 	}
+	scratch := make([]uint32, len(xs))
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i, want := range expected {
 		if xs[i] != want {
@@ -480,8 +484,9 @@ func TestBatchInvMontZeroInMiddle(t *testing.T) {
 func TestBatchInvMontConsecutiveZeros(t *testing.T) {
 	xs := []uint32{ToMont(2), 0, 0, 0, ToMont(3)}
 	expected := []uint32{InvMont(ToMont(2)), 0, 0, 0, InvMont(ToMont(3))}
+	scratch := make([]uint32, len(xs))
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i, want := range expected {
 		if xs[i] != want {
@@ -493,7 +498,8 @@ func TestBatchInvMontConsecutiveZeros(t *testing.T) {
 // Test BatchInvMont with all zeros
 func TestBatchInvMontAllZeros(t *testing.T) {
 	xs := []uint32{0, 0, 0}
-	BatchInvMont(xs)
+	scratch := make([]uint32, len(xs))
+	BatchInvMont(xs, scratch)
 	for i, v := range xs {
 		if v != 0 {
 			t.Errorf("BatchInvMont all zeros [%d] = %d, want 0", i, v)
@@ -507,12 +513,13 @@ func TestBatchInvMontProperty(t *testing.T) {
 	original := []uint32{7, 13, 42, 1000, 123456, Q - 1, Q - 2}
 	xs := make([]uint32, len(original))
 	origM := make([]uint32, len(original))
+	scratch := make([]uint32, len(original))
 	for i, x := range original {
 		xs[i] = ToMont(x)
 		origM[i] = xs[i]
 	}
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i, inv := range xs {
 		product := MulMont(origM[i], inv)
@@ -526,12 +533,13 @@ func TestBatchInvMontProperty(t *testing.T) {
 func TestBatchInvMontPosT(t *testing.T) {
 	xs := make([]uint32, PosT)
 	expected := make([]uint32, PosT)
+	scratch := make([]uint32, PosT)
 	for i := 0; i < PosT; i++ {
 		xs[i] = ToMont(uint32(i + 1))
 		expected[i] = InvMont(xs[i])
 	}
 
-	BatchInvMont(xs)
+	BatchInvMont(xs, scratch)
 
 	for i := 0; i < PosT; i++ {
 		if xs[i] != expected[i] {
