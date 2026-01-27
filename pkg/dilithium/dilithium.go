@@ -1,0 +1,348 @@
+// Package dilithium implements zkDilithium signature scheme.
+package dilithium
+
+import (
+	"zkdilithium-signer/pkg/encoding"
+	"zkdilithium-signer/pkg/field"
+	"zkdilithium-signer/pkg/hash"
+	"zkdilithium-signer/pkg/poly"
+	"zkdilithium-signer/pkg/sampling"
+)
+
+// Gen generates a keypair from a 32-byte seed.
+func Gen(seed []byte) (pk, sk []byte) {
+	if len(seed) != 32 {
+		panic("seed must be 32 bytes")
+	}
+
+	// Expand seed
+	expandedSeed := hash.H(seed, 32+64+32)
+	rho := expandedSeed[:32]
+	rho2 := expandedSeed[32 : 32+64]
+	key := expandedSeed[32+64:]
+
+	// Sample matrix A in NTT domain
+	Ahat := sampling.SampleMatrix(rho)
+
+	// Sample secret vectors
+	s1, s2 := sampling.SampleSecret(rho2)
+
+	// Compute t = A*s1 + s2 (in NTT domain, then convert back)
+	var t [field.K]poly.Poly
+	for i := 0; i < field.K; i++ {
+		var sum poly.Poly
+		for j := 0; j < field.L; j++ {
+			var s1NTT poly.Poly = s1[j]
+			s1NTT.NTT()
+			var prod poly.Poly
+			poly.MulNTT(&Ahat[i][j], &s1NTT, &prod)
+			poly.Add(&sum, &prod, &sum)
+		}
+		sum.InvNTT()
+		var s2p poly.Poly = s2[i]
+		poly.Add(&sum, &s2p, &t[i])
+	}
+
+	// Pack t
+	tPacked := make([]byte, 0, field.K*field.N*3)
+	for i := 0; i < field.K; i++ {
+		tPacked = append(tPacked, encoding.PackPoly((*[field.N]uint32)(&t[i]))...)
+	}
+
+	// Compute tr = H(rho || tPacked)
+	tr := hash.H(append(rho, tPacked...), 32)
+
+	// Pack s1 and s2
+	s1Packed := make([]byte, 0, field.L*96)
+	for i := 0; i < field.L; i++ {
+		s1Packed = append(s1Packed, encoding.PackPolyLeqEta((*[field.N]uint32)(&s1[i]))...)
+	}
+	s2Packed := make([]byte, 0, field.K*96)
+	for i := 0; i < field.K; i++ {
+		s2Packed = append(s2Packed, encoding.PackPolyLeqEta((*[field.N]uint32)(&s2[i]))...)
+	}
+
+	// Public key: rho || tPacked
+	pk = append(rho, tPacked...)
+
+	// Secret key: rho || key || tr || s1Packed || s2Packed || tPacked
+	sk = make([]byte, 0, 32+32+32+96*field.L+96*field.K+field.K*field.N*3)
+	sk = append(sk, rho...)
+	sk = append(sk, key...)
+	sk = append(sk, tr...)
+	sk = append(sk, s1Packed...)
+	sk = append(sk, s2Packed...)
+	sk = append(sk, tPacked...)
+
+	return pk, sk
+}
+
+// Sign signs a message with the secret key.
+func Sign(sk, msg []byte) []byte {
+	// Unpack secret key
+	rho := sk[:32]
+	key := sk[32:64]
+	tr := sk[64:96]
+
+	// Unpack s1
+	var s1 [field.L]poly.Poly
+	for i := 0; i < field.L; i++ {
+		s1[i] = encoding.UnpackPolyLeqEta(sk[96+i*96 : 96+(i+1)*96])
+	}
+
+	// Unpack s2
+	var s2 [field.K]poly.Poly
+	for i := 0; i < field.K; i++ {
+		s2[i] = encoding.UnpackPolyLeqEta(sk[96+96*field.L+i*96 : 96+96*field.L+(i+1)*96])
+	}
+
+	// Sample matrix A
+	Ahat := sampling.SampleMatrix(rho)
+
+	// Compute mu using Poseidon
+	hMu := hash.NewPoseidon([]uint32{0})
+	hMu.Write(encoding.BytesToFes(tr))
+	hMu.Permute()
+	hMu.Write(encoding.BytesToFes(msg))
+	mu := hMu.Read(field.MuSize)
+
+	// Precompute NTT of secrets
+	var s1Hat [field.L]poly.Poly
+	for i := 0; i < field.L; i++ {
+		s1Hat[i] = s1[i]
+		s1Hat[i].NTT()
+	}
+	var s2Hat [field.K]poly.Poly
+	for i := 0; i < field.K; i++ {
+		s2Hat[i] = s2[i]
+		s2Hat[i].NTT()
+	}
+
+	// Derive rho2 for y sampling
+	// Make copies to avoid modifying the underlying sk array
+	trMsg := make([]byte, len(tr)+len(msg))
+	copy(trMsg, tr)
+	copy(trMsg[len(tr):], msg)
+	innerHash := hash.H(trMsg, 64)
+	keyHash := make([]byte, len(key)+len(innerHash))
+	copy(keyHash, key)
+	copy(keyHash[len(key):], innerHash)
+	rho2 := hash.H(keyHash, 64)
+
+	yNonce := 0
+	for {
+		// Sample y
+		y := sampling.SampleY(rho2, yNonce)
+		yNonce += field.L
+
+		// Compute w = A * y
+		var w [field.K]poly.Poly
+		for i := 0; i < field.K; i++ {
+			var sum poly.Poly
+			for j := 0; j < field.L; j++ {
+				var yNTT poly.Poly = y[j]
+				yNTT.NTT()
+				var prod poly.Poly
+				poly.MulNTT(&Ahat[i][j], &yNTT, &prod)
+				poly.Add(&sum, &prod, &sum)
+			}
+			sum.InvNTT()
+			w[i] = sum
+		}
+
+		// Decompose w
+		var w1 [field.K]poly.Poly
+		for i := 0; i < field.K; i++ {
+			_, w1[i] = w[i].Decompose()
+		}
+
+		// Compute challenge hash
+		hC := hash.NewPoseidon(nil)
+		hC.Write(mu)
+		for j := 0; j < field.N; j++ {
+			for i := 0; i < field.K; i++ {
+				hC.Write([]uint32{w1[i][j]})
+			}
+		}
+		cTilde := hC.Read(field.CSize)
+
+		// Sample c from cTilde
+		hBall := hash.NewPoseidon(append([]uint32{2}, cTilde...))
+		c := sampling.SampleInBall(hBall)
+		if c == nil {
+			continue // Rejection
+		}
+
+		// Compute cs2 = c * s2 (in NTT domain)
+		var cHat poly.Poly = *c
+		cHat.NTT()
+
+		var cs2 [field.K]poly.Poly
+		for i := 0; i < field.K; i++ {
+			poly.MulNTT(&cHat, &s2Hat[i], &cs2[i])
+			cs2[i].InvNTT()
+		}
+
+		// Check r0 = w - cs2
+		var r0 [field.K]poly.Poly
+		for i := 0; i < field.K; i++ {
+			poly.Sub(&w[i], &cs2[i], &r0[i])
+		}
+		r0Decomposed := make([][field.N]uint32, field.K)
+		for i := 0; i < field.K; i++ {
+			r0Decomposed[i], _ = r0[i].Decompose()
+		}
+
+		// Check norm of r0
+		var maxR0Norm uint32
+		for i := 0; i < field.K; i++ {
+			var p poly.Poly = r0Decomposed[i]
+			n := p.Norm()
+			if n > maxR0Norm {
+				maxR0Norm = n
+			}
+		}
+		if maxR0Norm >= field.Gamma2-field.Beta {
+			continue
+		}
+
+		// Compute z = y + c*s1
+		var z [field.L]poly.Poly
+		for i := 0; i < field.L; i++ {
+			var cs1 poly.Poly
+			poly.MulNTT(&cHat, &s1Hat[i], &cs1)
+			cs1.InvNTT()
+			poly.Add(&y[i], &cs1, &z[i])
+		}
+
+		// Check norm of z
+		var maxZNorm uint32
+		for i := 0; i < field.L; i++ {
+			n := z[i].Norm()
+			if n > maxZNorm {
+				maxZNorm = n
+			}
+		}
+		if maxZNorm >= field.Gamma1-field.Beta {
+			continue
+		}
+
+		// Pack signature
+		sig := encoding.PackFes(cTilde)
+		for i := 0; i < field.L; i++ {
+			sig = append(sig, encoding.PackPolyLeGamma1((*[field.N]uint32)(&z[i]))...)
+		}
+		return sig
+	}
+}
+
+// Verify verifies a signature.
+func Verify(pk, msg, sig []byte) bool {
+	expectedSigLen := field.CSize*3 + field.PolyLeGamma1Size*field.L
+	if len(sig) != expectedSigLen {
+		return false
+	}
+
+	// Unpack signature
+	packedCTilde := sig[:field.CSize*3]
+	packedZ := sig[field.CSize*3:]
+	cTilde := encoding.UnpackFes(packedCTilde)
+
+	var z [field.L]poly.Poly
+	for i := 0; i < field.L; i++ {
+		z[i] = encoding.UnpackPolyLeGamma1(packedZ[i*field.PolyLeGamma1Size : (i+1)*field.PolyLeGamma1Size])
+	}
+
+	// Unpack public key
+	rho := pk[:32]
+	tPacked := pk[32:]
+
+	var t [field.K]poly.Poly
+	for i := 0; i < field.K; i++ {
+		t[i] = encoding.UnpackPoly(tPacked[i*field.N*3 : (i+1)*field.N*3])
+	}
+
+	// Compute tr
+	tr := hash.H(pk, 32)
+
+	// Compute mu
+	hMu := hash.NewPoseidon([]uint32{0})
+	hMu.Write(encoding.BytesToFes(tr))
+	hMu.Permute()
+	hMu.Write(encoding.BytesToFes(msg))
+	mu := hMu.Read(field.MuSize)
+
+	// Sample c from cTilde
+	hBall := hash.NewPoseidon(append([]uint32{2}, cTilde...))
+	c := sampling.SampleInBall(hBall)
+	if c == nil {
+		return false
+	}
+
+	// Check z norm
+	for i := 0; i < field.L; i++ {
+		if z[i].Norm() >= field.Gamma1-field.Beta {
+			return false
+		}
+	}
+
+	// Sample A
+	Ahat := sampling.SampleMatrix(rho)
+
+	// Compute Az - tc in NTT domain
+	var cHat poly.Poly = *c
+	cHat.NTT()
+
+	var zHat [field.L]poly.Poly
+	for i := 0; i < field.L; i++ {
+		zHat[i] = z[i]
+		zHat[i].NTT()
+	}
+
+	var tHat [field.K]poly.Poly
+	for i := 0; i < field.K; i++ {
+		tHat[i] = t[i]
+		tHat[i].NTT()
+	}
+
+	var w1 [field.K]poly.Poly
+	for i := 0; i < field.K; i++ {
+		// Az
+		var Az poly.Poly
+		for j := 0; j < field.L; j++ {
+			var prod poly.Poly
+			poly.MulNTT(&Ahat[i][j], &zHat[j], &prod)
+			poly.Add(&Az, &prod, &Az)
+		}
+
+		// tc
+		var tc poly.Poly
+		poly.MulNTT(&tHat[i], &cHat, &tc)
+
+		// Az - tc
+		var diff poly.Poly
+		poly.Sub(&Az, &tc, &diff)
+		diff.InvNTT()
+
+		// Decompose
+		_, w1[i] = diff.Decompose()
+	}
+
+	// Recompute challenge
+	hC := hash.NewPoseidon(nil)
+	hC.Write(mu)
+	for j := 0; j < field.N; j++ {
+		for i := 0; i < field.K; i++ {
+			hC.Write([]uint32{w1[i][j]})
+		}
+	}
+	cTilde2 := hC.Read(field.CSize)
+
+	// Compare
+	for i := range cTilde {
+		if cTilde[i] != cTilde2[i] {
+			return false
+		}
+	}
+	return true
+}

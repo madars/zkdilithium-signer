@@ -1,0 +1,19 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# Generated test data
+stress_vectors.json
+test_vectors.json
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Build
+/bin/
+
+# Logs
+log/

@@ -829,21 +829,18 @@ def Sign(sk, msg):
         h.write(cTilde)
         c = sampleInBall(h)
         if c is None:
-            print("Retrying because of challenge")
             continue
-        
+
         cHat = c.NTT()
         cs2 = s2Hat.ScalarMulNTT(cHat).InvNTT()
 
         r0, _ = (w-cs2).decompose()
 
         if r0.norm() >= GAMMA2 - BETA:
-            print("Retrying because of r0 check")
             continue
 
         z = y + s1Hat.ScalarMulNTT(cHat).InvNTT()
         if z.norm() >= GAMMA1 - BETA:
-            print("Retrying because of z check")
             continue
 
         return packFes(cTilde) + z.packLeGamma1()
