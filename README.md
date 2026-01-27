@@ -60,13 +60,14 @@ This repository includes a fix for a bug in the upstream Python implementation's
 
 ## Performance
 
-Benchmarks on Debian VM (MacBook M3 Pro host), 64-byte messages:
+Benchmarks on Debian VM (MacBook M3 Pro host) with varied messages to capture
+rejection sampling variance:
 
 | Operation | Go | Python | Speedup |
 |-----------|-----|--------|---------|
 | Gen (keygen) | 0.10 ms | 3.1 ms | 31x |
-| Sign | 6.0 ms | 144 ms | 24x |
-| Verify | 3.0 ms | 73 ms | 24x |
+| Sign | 19.8 ms | 461 ms | 23x |
+| Verify | 2.9 ms | 71.5 ms | 25x |
 
 Run benchmarks:
 
