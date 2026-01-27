@@ -84,8 +84,63 @@ func Neg(a uint32) uint32 {
 }
 
 // Inv returns the modular inverse of a using Fermat's little theorem: a^(Q-2) mod Q.
+// Uses an optimized addition chain exploiting Q-2 = 0b110_11111111111111111111.
+// Cost: 30 operations (23 squarings, 7 multiplications) vs ~43 for binary method.
 func Inv(a uint32) uint32 {
-	return Exp(a, Q-2)
+	if a == 0 {
+		return 0 // Undefined, but 0 is safe return
+	}
+
+	// Q-2 = 7340031 = 0b110_11111111111111111111
+	// Structure: header "110" followed by 20 ones = 5 blocks of "1111"
+
+	// 1. Precompute small powers (3 squarings, 2 multiplications)
+	x2 := Mul(a, a)     // a^2
+	x3 := Mul(x2, a)    // a^3  (bits: 11)
+	x6 := Mul(x3, x3)   // a^6  (bits: 110) <- header
+	x12 := Mul(x6, x6)  // a^12
+	x15 := Mul(x12, x3) // a^15 (bits: 1111)
+
+	// 2. Append "1111" five times to the header "110"
+	// Exponent structure: [110] [1111] [1111] [1111] [1111] [1111]
+	res := x6
+
+	// Iteration 1: shift left 4, append 1111
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, x15)
+
+	// Iteration 2
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, x15)
+
+	// Iteration 3
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, x15)
+
+	// Iteration 4
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, x15)
+
+	// Iteration 5
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, res)
+	res = Mul(res, x15)
+
+	return res
 }
 
 // BatchInv computes the modular inverse of each element in place.

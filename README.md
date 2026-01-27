@@ -75,6 +75,10 @@ rejection sampling variance:
    n inversions with only 1 inversion + 3(n-1) multiplications, reducing
    Poseidon overhead by ~2.9x.
 
+2. **Optimized modular inverse** - Uses a fixed addition chain for a^(Q-2)
+   exploiting Q-2 = 0b110\_11111111111111111111. Reduces operations from ~43
+   to 30 per Inv() call.
+
 Run benchmarks:
 
 ```bash

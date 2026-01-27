@@ -71,6 +71,25 @@ func TestInvProperty(t *testing.T) {
 	}
 }
 
+// Test that optimized Inv matches generic Exp(a, Q-2) method
+func TestInvMatchesExp(t *testing.T) {
+	testCases := []uint32{1, 2, 3, 7, 13, 42, 100, 1000, 12345, 123456, 1000000, Q - 1, Q - 2, Q / 2, Q / 3}
+	for _, a := range testCases {
+		got := Inv(a)
+		want := Exp(a, Q-2)
+		if got != want {
+			t.Errorf("Inv(%d) = %d, but Exp(%d, Q-2) = %d", a, got, a, want)
+		}
+	}
+}
+
+// Test Inv(0) returns 0 (undefined but safe)
+func TestInvZero(t *testing.T) {
+	if Inv(0) != 0 {
+		t.Errorf("Inv(0) = %d, want 0", Inv(0))
+	}
+}
+
 // Test that Inv2 is actually inverse of 2
 func TestInv2Property(t *testing.T) {
 	if Mul(2, Inv2) != 1 {
