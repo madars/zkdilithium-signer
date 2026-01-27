@@ -54,20 +54,23 @@ func Mod(x int64) uint32 {
 }
 
 // Add returns (a + b) mod Q.
+// Since Q ~ 2^23, a + b < 2*Q < 2^24 fits in uint32.
 func Add(a, b uint32) uint32 {
-	sum := uint64(a) + uint64(b)
+	sum := a + b
 	if sum >= Q {
 		sum -= Q
 	}
-	return uint32(sum)
+	return sum
 }
 
 // Sub returns (a - b) mod Q.
+// Using int32 arithmetic avoids extra comparison.
 func Sub(a, b uint32) uint32 {
-	if a >= b {
-		return a - b
+	diff := int32(a) - int32(b)
+	if diff < 0 {
+		diff += Q
 	}
-	return Q - b + a
+	return uint32(diff)
 }
 
 // Mul returns (a * b) mod Q.
