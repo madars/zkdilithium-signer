@@ -107,8 +107,8 @@ func SampleInBall(h *hash.Poseidon) *poly.Poly {
 		h.ApplyPerm()
 		state := h.State()
 
-		// Read signs from state[8]
-		fe := state[8]
+		// Read signs from state[8] (convert from Montgomery form)
+		fe := field.FromMont(state[8])
 		q := fe / (1 << signsPerFe)
 		r := fe % (1 << signsPerFe)
 		if q == field.Q/(1<<signsPerFe) {
@@ -125,10 +125,10 @@ func SampleInBall(h *hash.Poseidon) *poly.Poly {
 			r >>= 1
 		}
 
-		// Read swap positions from state[0:8]
+		// Read swap positions from state[0:8] (convert from Montgomery form)
 		for j := 0; j < field.PosCycleLen; j++ {
 			base := 256 - nTau + i*field.PosCycleLen + j
-			fe := state[j]
+			fe := field.FromMont(state[j])
 			divisor := uint32(base + 1)
 			q := fe / divisor
 			swapR := int(fe % divisor)

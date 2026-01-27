@@ -41,8 +41,26 @@ func (p *Poly) InvNTT() {
 }
 
 // MulNTT computes componentwise multiplication (for polynomials in NTT domain).
+// Uses Montgomery multiplication - both inputs should be in Montgomery form,
+// and the result will be in Montgomery form.
 func MulNTT(a, b *Poly, result *Poly) {
-	ntt.MulNTT((*[field.N]uint32)(a), (*[field.N]uint32)(b), (*[field.N]uint32)(result))
+	for i := 0; i < field.N; i++ {
+		result[i] = field.MulMont(a[i], b[i])
+	}
+}
+
+// ToMont converts polynomial to Montgomery form in place.
+func (p *Poly) ToMont() {
+	for i := 0; i < field.N; i++ {
+		p[i] = field.ToMont(p[i])
+	}
+}
+
+// FromMont converts polynomial from Montgomery form in place.
+func (p *Poly) FromMont() {
+	for i := 0; i < field.N; i++ {
+		p[i] = field.FromMont(p[i])
+	}
 }
 
 // SchoolbookMul computes a * b using schoolbook multiplication.

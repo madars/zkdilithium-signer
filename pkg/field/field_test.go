@@ -359,3 +359,198 @@ func TestMulMontAssociativity(t *testing.T) {
 		t.Errorf("Montgomery associativity: got %d, want %d", abc, want)
 	}
 }
+
+// Test InvMont matches Inv (both produce inverse, just in different forms)
+func TestInvMontMatchesInv(t *testing.T) {
+	testCases := []uint32{1, 2, 3, 7, 13, 42, 100, 1000, 12345, 123456, Q - 1, Q - 2}
+	for _, a := range testCases {
+		// InvMont(a_M) should give (a^-1)_M
+		aM := ToMont(a)
+		aInvM := InvMont(aM)
+		got := FromMont(aInvM)
+
+		want := Inv(a)
+		if got != want {
+			t.Errorf("FromMont(InvMont(ToMont(%d))) = %d, want %d", a, got, want)
+		}
+	}
+}
+
+// Test InvMont property: a_M * InvMont(a_M) = 1_M
+func TestInvMontProperty(t *testing.T) {
+	oneM := ToMont(1)
+	testCases := []uint32{1, 2, 7, 42, 1000, 123456, Q - 1}
+	for _, a := range testCases {
+		aM := ToMont(a)
+		aInvM := InvMont(aM)
+		product := MulMont(aM, aInvM)
+		if product != oneM {
+			t.Errorf("MulMont(a_M, InvMont(a_M)) for a=%d: got %d, want %d (1_M)", a, product, oneM)
+		}
+	}
+}
+
+// Test InvMont(0) returns 0
+func TestInvMontZero(t *testing.T) {
+	if InvMont(0) != 0 {
+		t.Errorf("InvMont(0) = %d, want 0", InvMont(0))
+	}
+}
+
+// Test BatchInvMont correctness - compare against individual InvMont
+func TestBatchInvMont(t *testing.T) {
+	original := []uint32{1, 2, 3, 1000, 123456}
+	xs := make([]uint32, len(original))
+	expected := make([]uint32, len(original))
+	for i, x := range original {
+		xs[i] = ToMont(x)
+		expected[i] = InvMont(xs[i])
+	}
+
+	BatchInvMont(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInvMont[%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInvMont with zeros (edge case)
+func TestBatchInvMontWithZeros(t *testing.T) {
+	original := []uint32{0, 2, 0, 1000, 0}
+	xs := make([]uint32, len(original))
+	expected := make([]uint32, len(original))
+	for i, x := range original {
+		if x == 0 {
+			xs[i] = 0
+			expected[i] = 0
+		} else {
+			xs[i] = ToMont(x)
+			expected[i] = InvMont(xs[i])
+		}
+	}
+
+	BatchInvMont(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInvMont with zeros [%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInvMont where zero appears at start (prefix product starts at zero)
+func TestBatchInvMontZeroAtStart(t *testing.T) {
+	// Zero at index 0: tests the prods[0] = 1_M fallback
+	xs := []uint32{0, ToMont(2), ToMont(3)}
+	expected := []uint32{0, InvMont(ToMont(2)), InvMont(ToMont(3))}
+
+	BatchInvMont(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInvMont zero at start [%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInvMont where zero appears in middle (intermediate prefix product issue)
+func TestBatchInvMontZeroInMiddle(t *testing.T) {
+	// Zero in the middle: ensures prefix product skips zeros correctly
+	xs := []uint32{ToMont(5), ToMont(7), 0, ToMont(11), ToMont(13)}
+	expected := []uint32{
+		InvMont(ToMont(5)),
+		InvMont(ToMont(7)),
+		0,
+		InvMont(ToMont(11)),
+		InvMont(ToMont(13)),
+	}
+
+	BatchInvMont(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInvMont zero in middle [%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInvMont with consecutive zeros
+func TestBatchInvMontConsecutiveZeros(t *testing.T) {
+	xs := []uint32{ToMont(2), 0, 0, 0, ToMont(3)}
+	expected := []uint32{InvMont(ToMont(2)), 0, 0, 0, InvMont(ToMont(3))}
+
+	BatchInvMont(xs)
+
+	for i, want := range expected {
+		if xs[i] != want {
+			t.Errorf("BatchInvMont consecutive zeros [%d] = %d, want %d", i, xs[i], want)
+		}
+	}
+}
+
+// Test BatchInvMont with all zeros
+func TestBatchInvMontAllZeros(t *testing.T) {
+	xs := []uint32{0, 0, 0}
+	BatchInvMont(xs)
+	for i, v := range xs {
+		if v != 0 {
+			t.Errorf("BatchInvMont all zeros [%d] = %d, want 0", i, v)
+		}
+	}
+}
+
+// Test BatchInvMont property: each result * original = 1 (in Montgomery form)
+func TestBatchInvMontProperty(t *testing.T) {
+	oneM := ToMont(1)
+	original := []uint32{7, 13, 42, 1000, 123456, Q - 1, Q - 2}
+	xs := make([]uint32, len(original))
+	origM := make([]uint32, len(original))
+	for i, x := range original {
+		xs[i] = ToMont(x)
+		origM[i] = xs[i]
+	}
+
+	BatchInvMont(xs)
+
+	for i, inv := range xs {
+		product := MulMont(origM[i], inv)
+		if product != oneM {
+			t.Errorf("BatchInvMont property: %d_M * inv = %d, want %d (1_M)", original[i], product, oneM)
+		}
+	}
+}
+
+// Test BatchInvMont with PosT elements (actual Poseidon use case)
+func TestBatchInvMontPosT(t *testing.T) {
+	xs := make([]uint32, PosT)
+	expected := make([]uint32, PosT)
+	for i := 0; i < PosT; i++ {
+		xs[i] = ToMont(uint32(i + 1))
+		expected[i] = InvMont(xs[i])
+	}
+
+	BatchInvMont(xs)
+
+	for i := 0; i < PosT; i++ {
+		if xs[i] != expected[i] {
+			t.Errorf("BatchInvMont PosT [%d] = %d, want %d", i, xs[i], expected[i])
+		}
+	}
+}
+
+// Test MontReduce produces same result as MulMont for single multiplication
+func TestMontReduceMatchesMulMont(t *testing.T) {
+	testCases := []struct{ a, b uint32 }{
+		{1, 1}, {2, 3}, {42, 100}, {1000, 12345}, {Q - 1, Q - 2},
+	}
+	for _, tc := range testCases {
+		product := uint64(tc.a) * uint64(tc.b)
+		got := MontReduce(product)
+		want := MulMont(tc.a, tc.b)
+		if got != want {
+			t.Errorf("MontReduce(%d*%d) = %d, want %d", tc.a, tc.b, got, want)
+		}
+	}
+}

@@ -261,6 +261,23 @@ func MulMont(a, b uint32) uint32 {
 	return uint32(u)
 }
 
+// MontReduce performs Montgomery reduction on a uint64 value.
+// Used for lazy reduction: accumulate products in uint64, reduce once.
+// If input is sum of (a_M * b_M) values, result is in Montgomery form.
+func MontReduce(t uint64) uint32 {
+	// m = (t_lo * Q') mod 2^32
+	m := uint32(t) * montgomeryQInvNeg
+
+	// u = (t + m*Q) >> 32
+	u := (t + uint64(m)*Q) >> 32
+
+	// Conditional subtraction
+	if u >= Q {
+		u -= Q
+	}
+	return uint32(u)
+}
+
 // ToMont converts a to Montgomery form: a_M = a * R mod Q
 func ToMont(a uint32) uint32 {
 	// a * R mod Q = a * 2^32 mod Q
@@ -273,4 +290,106 @@ func ToMont(a uint32) uint32 {
 // FromMont converts from Montgomery form: a = a_M * R^(-1) mod Q
 func FromMont(aM uint32) uint32 {
 	return MulMont(aM, 1)
+}
+
+// InvMont computes the modular inverse in Montgomery form.
+// If input is a_M = a*R mod Q, output is (a^(-1))_M = a^(-1)*R mod Q.
+// Uses Fermat's little theorem: a^(-1) = a^(Q-2) mod Q.
+// All operations use MulMont so the Montgomery form is preserved.
+func InvMont(aM uint32) uint32 {
+	if aM == 0 {
+		return 0
+	}
+
+	// Q-2 = 7340031 = 0b110_11111111111111111111
+	// Structure: header "110" followed by 20 ones = 5 blocks of "1111"
+
+	// 1. Precompute small powers
+	x2 := MulMont(aM, aM)    // a^2
+	x3 := MulMont(x2, aM)    // a^3  (bits: 11)
+	x6 := MulMont(x3, x3)    // a^6  (bits: 110) <- header
+	x12 := MulMont(x6, x6)   // a^12
+	x15 := MulMont(x12, x3)  // a^15 (bits: 1111)
+
+	// 2. Append "1111" five times to the header "110"
+	res := x6
+
+	// Iteration 1: shift left 4, append 1111
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, x15)
+
+	// Iteration 2
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, x15)
+
+	// Iteration 3
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, x15)
+
+	// Iteration 4
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, x15)
+
+	// Iteration 5
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, res)
+	res = MulMont(res, x15)
+
+	return res
+}
+
+// BatchInvMont computes the modular inverse of each element in place.
+// All inputs and outputs are in Montgomery form.
+// Uses Montgomery's trick: n inversions with 1 inversion + 3(n-1) multiplications.
+// Elements that are 0 remain 0.
+func BatchInvMont(xs []uint32) {
+	n := len(xs)
+	if n == 0 {
+		return
+	}
+
+	// Compute prefix products (all in Montgomery form)
+	// Skip zeros by treating them as 1 in the product
+	prods := make([]uint32, n)
+	prods[0] = xs[0]
+	if prods[0] == 0 {
+		prods[0] = ToMont(1) // 1 in Montgomery form
+	}
+	for i := 1; i < n; i++ {
+		if xs[i] == 0 {
+			prods[i] = prods[i-1]
+		} else {
+			prods[i] = MulMont(prods[i-1], xs[i])
+		}
+	}
+
+	// Invert the final product (stays in Montgomery form)
+	inv := InvMont(prods[n-1])
+
+	// Work backwards to compute individual inverses
+	for i := n - 1; i > 0; i-- {
+		if xs[i] == 0 {
+			continue
+		}
+		oldXi := xs[i]
+		xs[i] = MulMont(inv, prods[i-1])
+		inv = MulMont(inv, oldXi)
+	}
+	if xs[0] != 0 {
+		xs[0] = inv
+	}
 }

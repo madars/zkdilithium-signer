@@ -2,49 +2,55 @@ package hash
 
 import "zkdilithium-signer/pkg/field"
 
-// PosRCs contains the Poseidon round constants.
-var PosRCs [field.PosT * field.PosRF]uint32
+// PosRCsMont contains the Poseidon round constants in Montgomery form.
+var PosRCsMont [field.PosT * field.PosRF]uint32
 
-// PosInv contains precomputed inverses for MDS: 1/(i+j-1) for i,j in [1, 2*PosT-1]
-var PosInv [2*field.PosT - 1]uint32
+// PosInvMont contains precomputed inverses for MDS in Montgomery form.
+// PosInvMont[i] = (1/(i+1))_M for i in [0, 2*PosT-2]
+var PosInvMont [2*field.PosT - 1]uint32
 
 func init() {
-	// Generate round constants using Grain LFSR
+	// Generate round constants using Grain LFSR, convert to Montgomery form
 	g := NewGrain()
 	for i := 0; i < field.PosT*field.PosRF; i++ {
-		PosRCs[i] = g.ReadFe()
+		PosRCsMont[i] = field.ToMont(g.ReadFe())
 	}
 
-	// Generate MDS inverses
+	// Generate MDS inverses in Montgomery form
 	for i := 0; i < 2*field.PosT-1; i++ {
-		PosInv[i] = field.Inv(uint32(i + 1))
+		PosInvMont[i] = field.ToMont(field.Inv(uint32(i + 1)))
 	}
 }
 
 // poseidonRound applies one round of the Poseidon permutation.
+// State is in Montgomery form throughout.
 func poseidonRound(state []uint32, r int) {
-	// Add round constants
+	// Add round constants (both in Montgomery form, addition preserves form)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.Add(state[i], PosRCs[field.PosT*r+i])
+		state[i] = field.Add(state[i], PosRCsMont[field.PosT*r+i])
 	}
 
-	// S-box: x -> x^(-1) (modular inverse)
-	// Use batch inversion for efficiency (1 inv + 3*(n-1) muls instead of n invs)
-	field.BatchInv(state)
+	// S-box: x -> x^(-1) in Montgomery form
+	// BatchInvMont operates directly on Montgomery form values
+	field.BatchInvMont(state)
 
-	// MDS matrix multiplication: M_ij = 1/(i+j-1)
+	// MDS matrix multiplication: M_ij = 1/(i+j+1)
+	// Lazy reduction: accumulate products in uint64, reduce once per row
 	old := make([]uint32, field.PosT)
 	copy(old, state)
 	for i := 0; i < field.PosT; i++ {
 		var acc uint64
 		for j := 0; j < field.PosT; j++ {
-			acc += uint64(PosInv[i+j]) * uint64(old[j])
+			// Raw multiply, accumulate without reduction
+			acc += uint64(PosInvMont[i+j]) * uint64(old[j])
 		}
-		state[i] = uint32(acc % field.Q)
+		// One Montgomery reduction per row
+		state[i] = field.MontReduce(acc)
 	}
 }
 
 // PoseidonPerm applies the full Poseidon permutation to state in place.
+// State must be in Montgomery form.
 func PoseidonPerm(state []uint32) {
 	for r := 0; r < field.PosRF; r++ {
 		poseidonRound(state, r)
@@ -52,8 +58,9 @@ func PoseidonPerm(state []uint32) {
 }
 
 // Poseidon is a sponge construction using the Poseidon permutation.
+// Internal state is kept in Montgomery form.
 type Poseidon struct {
-	s         [field.PosT]uint32
+	s         [field.PosT]uint32 // Montgomery form
 	absorbing bool
 	i         int
 }
@@ -70,12 +77,15 @@ func NewPoseidon(initial []uint32) *Poseidon {
 }
 
 // Write absorbs field elements into the sponge.
+// Input is in normal form, converted to Montgomery form internally.
 func (p *Poseidon) Write(fes []uint32) {
 	if !p.absorbing {
 		panic("cannot write after reading")
 	}
 	for _, fe := range fes {
-		p.s[p.i] = field.Add(p.s[p.i], fe)
+		// Convert input to Montgomery form and add to state
+		feM := field.ToMont(fe)
+		p.s[p.i] = field.Add(p.s[p.i], feM)
 		p.i++
 		if p.i == field.PosRate {
 			PoseidonPerm(p.s[:])
@@ -96,6 +106,7 @@ func (p *Poseidon) Permute() {
 }
 
 // Read squeezes n field elements from the sponge.
+// Output is converted from Montgomery form to normal form.
 func (p *Poseidon) Read(n int) []uint32 {
 	if p.absorbing {
 		p.absorbing = false
@@ -111,7 +122,10 @@ func (p *Poseidon) Read(n int) []uint32 {
 		if toRead > field.PosRate-p.i {
 			toRead = field.PosRate - p.i
 		}
-		ret = append(ret, p.s[p.i:p.i+toRead]...)
+		// Convert from Montgomery form for output
+		for j := 0; j < toRead; j++ {
+			ret = append(ret, field.FromMont(p.s[p.i+j]))
+		}
 		n -= toRead
 		p.i += toRead
 		if p.i == field.PosRate {
@@ -123,15 +137,17 @@ func (p *Poseidon) Read(n int) []uint32 {
 }
 
 // ReadNoMod reads n elements from state without modifying position.
-// Used in sampleInBall.
+// Used in sampleInBall. Returns values in Montgomery form.
 func (p *Poseidon) ReadNoMod(n int) []uint32 {
 	if n > field.PosRate {
 		panic("ReadNoMod: n > PosRate")
 	}
+	// Return Montgomery form values (sampleInBall expects this now)
 	return p.s[:n]
 }
 
 // State returns a pointer to the internal state (for sampleInBall).
+// State is in Montgomery form.
 func (p *Poseidon) State() *[field.PosT]uint32 {
 	return &p.s
 }

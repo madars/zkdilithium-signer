@@ -79,14 +79,19 @@ func TestNTTMulMatchesSchoolbook(t *testing.T) {
 	// Schoolbook multiplication
 	_, rSchool := SchoolbookMul(&a, &b)
 
-	// NTT multiplication
+	// NTT multiplication with Montgomery form
 	var aNTT, bNTT, rNTT Poly
 	Copy(&aNTT, &a)
 	Copy(&bNTT, &b)
+	// Convert to Montgomery form before NTT
+	aNTT.ToMont()
+	bNTT.ToMont()
 	aNTT.NTT()
 	bNTT.NTT()
-	MulNTT(&aNTT, &bNTT, &rNTT)
+	MulNTT(&aNTT, &bNTT, &rNTT) // Mont * Mont -> Mont
 	rNTT.InvNTT()
+	// Convert from Montgomery form after InvNTT
+	rNTT.FromMont()
 
 	if !Equal(&rNTT, &rSchool) {
 		t.Error("NTT multiplication does not match schoolbook")

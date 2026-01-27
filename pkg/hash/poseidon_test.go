@@ -20,15 +20,16 @@ func TestGrainFirst10Fes(t *testing.T) {
 	}
 }
 
-// Test round constants first 16 match Python
+// Test round constants first 16 match Python (after converting from Montgomery)
 func TestPosRCsFirst16(t *testing.T) {
 	expected := []uint32{
 		662000, 7104925, 2304656, 2330809, 452951, 1722141, 5334010, 7087604,
 		5110463, 6023804, 3061965, 6087945, 3740272, 284272, 4421217, 559188,
 	}
 	for i, want := range expected {
-		if PosRCs[i] != want {
-			t.Errorf("PosRCs[%d] = %d, want %d", i, PosRCs[i], want)
+		got := field.FromMont(PosRCsMont[i])
+		if got != want {
+			t.Errorf("PosRCs[%d] = %d, want %d", i, got, want)
 		}
 	}
 }
@@ -37,11 +38,13 @@ func TestPosRCsFirst16(t *testing.T) {
 func TestPoseidonPerm(t *testing.T) {
 	state := make([]uint32, field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = uint32(i)
+		// Convert input to Montgomery form (PoseidonPerm expects Montgomery form)
+		state[i] = field.ToMont(uint32(i))
 	}
 
 	PoseidonPerm(state)
 
+	// Convert output from Montgomery form for comparison
 	expected := []uint32{
 		6525793, 2817790, 5538989, 1140645, 1838881, 2536727, 6768730, 4709337,
 		6955613, 2401101, 1387526, 5346661, 1137806, 7270459, 1552970, 4071298,
@@ -50,8 +53,9 @@ func TestPoseidonPerm(t *testing.T) {
 		7322777, 3396423, 2354672,
 	}
 	for i, want := range expected {
-		if state[i] != want {
-			t.Errorf("PoseidonPerm[%d] = %d, want %d", i, state[i], want)
+		got := field.FromMont(state[i])
+		if got != want {
+			t.Errorf("PoseidonPerm[%d] = %d, want %d", i, got, want)
 		}
 	}
 }
