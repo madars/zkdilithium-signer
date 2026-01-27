@@ -1,0 +1,76 @@
+Bug Report: Poly.norm() does not handle negative integers from decompose()
+==========================================================================
+
+Repository: https://github.com/guruvamsi-policharla/zkdilithium
+File: zkdilithium.py
+Function: Poly.norm() (line ~436)
+
+Summary
+-------
+The Poly.norm() function does not correctly handle negative integers returned
+by the decompose() function. This causes some signatures to pass the r0 norm
+check during signing but fail verification.
+
+Current Code (buggy)
+--------------------
+def norm(self):
+    n = 0
+    for c in self.cs:
+        if c > (Q-1)//2:
+            c = Q - c
+        n = max(c, n)
+    return n
+
+Problem
+-------
+The decompose() function returns actual Python negative integers (e.g., -65348)
+rather than modular representations. When norm() encounters a negative integer:
+
+1. The check `c > (Q-1)//2` fails (negative numbers are not > 3670016)
+2. The value c remains negative
+3. `max(c, n)` compares a negative number with a positive one
+4. Since negative < positive, the negative value never updates the maximum
+
+This means the actual maximum absolute coefficient is missed when it's
+negative.
+
+Impact
+------
+During signing, the check `if r0.norm() >= GAMMA2 - BETA` may pass when it
+should fail. This produces signatures that:
+- Pass the signing norm check (using buggy norm)
+- Fail verification (because recomputed challenge doesn't match)
+
+Example:
+  seed = specific 32-byte value (vector 18 with random.seed(20240102))
+  r0.norm() returns 65270 (buggy - misses negative -65527)
+  Correct norm should be 65527
+  Threshold is 65456 (GAMMA2 - BETA)
+
+  Buggy: 65270 < 65456 -> passes check, signature generated
+  Correct: 65527 >= 65456 -> should fail check, signature rejected
+
+Fix
+---
+Add abs() to handle negative integers:
+
+def norm(self):
+    n = 0
+    for c in self.cs:
+        # Handle both mod Q representation (large positive = negative)
+        # and actual negative integers (from decompose)
+        if c > (Q-1)//2:
+            c = Q - c
+        n = max(abs(c), n)
+    return n
+
+This correctly handles:
+- Modular representation: values > (Q-1)/2 are converted to Q - c
+- Negative integers: abs() ensures they contribute to the maximum
+
+Reference
+---------
+Per the Dilithium specification (pq-crystals.org), the infinity norm is
+defined as ||w||_inf = |w mod+/- q|, which is the absolute value in the
+centered representation. The fix ensures this is computed correctly
+regardless of how the coefficient is represented internally.

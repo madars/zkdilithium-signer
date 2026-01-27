@@ -435,7 +435,7 @@ class Poly:
         for c in self.cs:
             if c > (Q-1)//2:
                 c = Q - c
-            n = max(c, n)
+            n = max(abs(c), n)
         return n
 
     def decompose(self):
