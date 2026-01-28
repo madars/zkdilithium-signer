@@ -66,30 +66,37 @@ rejection sampling variance:
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
 | Gen | 0.10 ms | 0.10 ms | 3.1 ms | 31x | 1.0x |
-| Sign | 19.8 ms | 5.5 ms | 461 ms | 84x | 3.6x |
-| Verify | 2.9 ms | 0.85 ms | 71.5 ms | 84x | 3.4x |
+| Sign | 19.8 ms | 5.0 ms | 461 ms | 92x | 4.0x |
+| Verify | 2.9 ms | 0.78 ms | 71.5 ms | 92x | 3.7x |
 
 ### Optimizations
 
 1. **Batch inversion for Poseidon S-box** - Uses Montgomery's trick to compute
-   n inversions with only 1 inversion + 3(n-1) multiplications, reducing
-   Poseidon overhead by ~2.9x.
+   n inversions with only 1 inversion + 3(n-1) multiplications.
 
 2. **Optimized modular inverse** - Uses a fixed addition chain for a^(Q-2)
    exploiting Q-2 = 0b110\_11111111111111111111. Reduces operations from ~43
    to 30 per Inv() call.
 
-3. **Montgomery multiplication for NTT** - Precomputes zetas in Montgomery form,
-   avoiding expensive division in the NTT inner loop. Isolated NTT benchmark shows
-   ~36% improvement, though impact on Sign/Verify is marginal since Poseidon
-   dominates runtime.
+3. **Montgomery multiplication** - All NTT and Poseidon operations stay in
+   Montgomery form. Convert to/from Montgomery only at boundaries.
 
-4. **MDS loop optimization** - Uses fixed-size array pointers to eliminate bounds
-   checks, unrolls inner loop by 7 (35 = 5 × 7), and uses local temporaries for
-   better register allocation. Reduces MDS time by ~16%.
+4. **Lazy Montgomery reduction** - Skip conditional subtraction in multiplication
+   chains, reducing operations by ~5%.
 
-*Note: We evaluated Solinas/Proth reduction exploiting Q = 7·2^20 + 1, but
-Montgomery multiplication empirically outperformed it on ARM64.*
+5. **Pair processing for ILP** - BatchInvMont processes pairs of elements with
+   branchless zero handling, enabling instruction-level parallelism (~10% faster).
+
+6. **Optimized Add/Sub** - Uses uint32/int32 arithmetic instead of uint64,
+   avoiding unnecessary promotion since Q < 2^23.
+
+7. **MDS loop optimization** - Uses fixed-size array pointers to eliminate bounds
+   checks, unrolls inner loop by 7 (35 = 5 × 7).
+
+8. **Zero-allocation Poseidon** - Reusable scratch buffers reduce allocations
+   from ~7000 to ~110 per Sign.
+
+See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 
 Run benchmarks:
 
