@@ -25,8 +25,8 @@ Why bottom-up with test vectors at each level?
 - Allocations: ~7000+ per Sign
 
 ### Final Results
-- Sign: 5.2ms (3.8x faster than baseline 19.8ms)
-- Verify: 0.81ms (3.6x faster than baseline 2.9ms)
+- Sign: 5.0ms (4.0x faster than baseline 19.8ms)
+- Verify: 0.78ms (3.7x faster than baseline 2.9ms)
 - Allocations: ~110 per Sign
 
 ### Optimizations Applied (in commit order)
@@ -70,6 +70,13 @@ which fits in uint32.
 - Applied to InvMont (30 muls) and BatchInvMont (102 muls per batch)
 - Single reduce() at chain end instead of per-operation
 - Results: Sign 5.5ms → 5.25ms (~5%), Verify 0.85ms → 0.81ms (~5%)
+
+#### 9. BatchInvMontParallel (Pair Processing for ILP)
+- Process pairs of elements in forward/backward passes for instruction-level parallelism
+- Branchless zero handling: `nonZeroMask = (x | -x) >> 63` (1 if nonzero, 0 if zero)
+- Uniform operations: `safe = x*nzm + oneM*(1-nzm)` selects x or 1_M without branching
+- Interleave multiplications: start two MULs before completing Montgomery reductions
+- Results: BatchInvMont 342ns → 306ns (~10%), Sign ~5.2ms → ~5.0ms (~4%), Verify ~810μs → ~780μs (~4%)
 
 ### Optimizations That Did NOT Work
 
@@ -127,16 +134,36 @@ Result: ~2% improvement - not worth the complexity. The technique replaces MontR
 with a simpler hi-mul, but MontReduce is already efficient (2 muls vs 1 mul).
 The real bottleneck is batch inversion (46% of runtime), not multiplication/reduction.
 
+#### 13. Pure Branchless BatchInvMont (without pair processing)
+Converted BatchInvMont to use branchless zero detection without pair processing.
+Result: ~1.5% SLOWER (345ns vs 340ns). The branch predictor wins for rare zeros
+(~1/Q probability). Branchless only pays off when combined with pair processing
+that enables instruction-level parallelism.
+
+#### 14. NEON SIMD Assembly for BatchInvMont
+Attempted hand-written ARM64 NEON assembly for vectorized batch inversion.
+Failed due to Go's calling convention complexity (regabi). Go generates wrappers
+that convert between register ABI and stack-based calling, making it difficult
+to write correct assembly that interoperates with Go code. Would need CGO or
+a pure assembly implementation to avoid these issues.
+
 ### Profiling Breakdown (Final)
 
-Sign operation (5.2ms):
-- poseidonRound: 87% cumulative (MDS matrix + batch inversion)
-- BatchInvMont: 23% flat, 43% cumulative
-- mulMontLazy: 19% flat (the actual Montgomery multiplication work)
-- InvMont: 16% cumulative
-- MontReduce: 3% (used in MDS)
-- NTT: 4%, InvNTT: 2%
-- SHA3/SHAKE: 2%
+Sign operation (~5.0ms):
+- poseidonRound: 42% (main hotspot)
+  - BatchInvMontParallel: 16% (S-box inversion)
+  - MDS matrix: ~23% (7-unrolled MADD chains)
+  - Round constants: ~3%
+- mulMontLazy: 20% (Montgomery multiplication)
+- MontReduce: 3.5% (final reduction in MDS)
+- NTT: 3%, InvNTT: 2%
+- SHA3/SHAKE: ~2%
+
+All hot paths already use branchless operations:
+- Add/Sub: compiler generates CSEL (conditional select)
+- MDS: 7-way unrolled, efficient MUL/MADD chains
+- NTT: uses Add/Sub which compile to CSEL
+- BatchInvMontParallel: branchless zero handling + pair processing
 
 ### What Would Help Further
 

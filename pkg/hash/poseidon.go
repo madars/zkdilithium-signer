@@ -32,8 +32,8 @@ func poseidonRound(state, scratch []uint32, r int) {
 	}
 
 	// S-box: x -> x^(-1) in Montgomery form
-	// BatchInvMont operates directly on Montgomery form values
-	field.BatchInvMont(state, scratch)
+	// BatchInvMontParallel uses pair processing for better ILP
+	field.BatchInvMontParallel(state, scratch)
 
 	// MDS matrix multiplication: M_ij = 1/(i+j+1)
 	// Lazy reduction: accumulate products in uint64, reduce once per row
