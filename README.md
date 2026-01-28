@@ -66,7 +66,7 @@ rejection sampling variance:
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
 | Gen | 0.10 ms | 0.10 ms | 3.1 ms | 31x | 1.0x |
-| Sign | 19.8 ms | 6.9 ms | 461 ms | 67x | 2.9x |
+| Sign | 19.8 ms | 6.0 ms | 461 ms | 77x | 3.3x |
 | Verify | 2.9 ms | 1.0 ms | 71.5 ms | 72x | 2.9x |
 
 ### Optimizations
