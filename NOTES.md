@@ -147,6 +147,19 @@ that convert between register ABI and stack-based calling, making it difficult
 to write correct assembly that interoperates with Go code. Would need CGO or
 a pure assembly implementation to avoid these issues.
 
+#### 15. MDS Row Parallelization (2-row and 5-row)
+Tried processing multiple MDS rows simultaneously for better ILP:
+- 2-row parallel: No improvement (~304ns both). CPU out-of-order execution
+  already parallelizes the 7 independent multiplications within each row.
+- 5-row parallel: 26% slower (382ns vs 304ns). Too much register pressure
+  with 5 accumulators and 5 inverse coefficient pointers.
+The original single-row with 7-way unrolling is optimal.
+
+#### 16. Hoisting Q Constant in Round Constant Loop
+Assembly inspection shows Q = 7340033 is reloaded each iteration (2 instructions
+per iteration × 35 iterations × 21 rounds = 1470 extra instructions per perm).
+Estimated impact: ~0.1% of Sign time. Not worth hand-writing assembly.
+
 ### Profiling Breakdown (Final)
 
 Sign operation (~5.0ms):
@@ -167,9 +180,21 @@ All hot paths already use branchless operations:
 
 ### What Would Help Further
 
-1. **ARM64 NEON Assembly** - SIMD could parallelize MulMont operations
-2. **Assembly MDS** - Vectorized matrix-vector product
-3. **Different Algorithm** - But we're implementing a specific spec
+At this point, pure Go optimizations are exhausted. The 4x speedup from baseline
+(19.8ms → 5.0ms) captures most available gains. Further improvement requires:
+
+1. **Hand-written SIMD Assembly** - NEON could parallelize 4 MulMont operations
+   simultaneously, but Go's calling conventions make this difficult without CGO.
+2. **Algorithmic Changes** - Different Poseidon parameters (smaller T, fewer rounds)
+   or a different hash function entirely. But we're implementing a specific spec.
+3. **Specialized Hardware** - FPGA/ASIC for field arithmetic.
+
+The codebase is now well-optimized:
+- All hot paths use branchless operations (CSEL)
+- Montgomery multiplication with lazy reduction
+- Batch inversion with pair processing for ILP
+- MDS matrix with 7-way unrolled MADD chains
+- Zero-allocation Poseidon with reusable scratch buffers
 
 ### Architecture Notes
 
