@@ -233,6 +233,53 @@ Benchmarked different unroll factors for the 35-element MDS inner loop:
 Unroll-5 is ~5% faster than unroll-7. The 7 outer iterations with 5 multiplies
 each has better register allocation than 5 outer iterations with 7 multiplies.
 
+#### 20. Go Assembly for mulMontLazy
+Attempted hand-written ARM64 assembly for mulMontLazy (2 UMULL + 1 UMADDL + 1 LSR).
+Result: **40x slower** (10ns vs 0.26ns). Go assembly for non-runtime packages uses
+stack-based calling convention (abi0), not register ABI. Every call requires:
+- Loading parameters from stack into registers
+- Storing result back to stack
+This overhead dominates the 4-instruction operation. Meanwhile, Go's inlined
+mulMontLazy has zero call overhead.
+
+The optimal ARM64 sequence (via `clang -O3`) is:
+```asm
+umull  x2, w0, w1       ; t = a * b (64-bit)
+mul    w3, w2, w(QINV)  ; m = lo(t) * QINV_NEG
+umaddl x2, w(Q), w3, x2 ; t += m * Q
+lsr    x0, x2, #32      ; return hi(t)
+```
+Go generates equivalent code when mulMontLazy is inlined.
+
+#### 21. Inlining Budget Analysis
+Go's inliner has a cost budget of 80. Analyzed all field functions:
+
+**Hot path functions that CAN inline (cost ≤ 80):**
+- `mulMontLazy`: cost 32 ✓
+- `MulMont`: cost 39 ✓
+- `MontReduce`: cost 30 ✓
+- `reduce`: cost 22 ✓
+- `Add`: cost 16 ✓
+- `Sub`: cost 19 ✓
+- `ToMont/FromMont`: cost 44 ✓
+- `MulMont2/MontReduce2`: cost 77/59 ✓
+
+**Complex algorithms that CANNOT inline (shouldn't be split):**
+- `InvMont`: cost 1150 (29 chained operations)
+- `BatchInvMontTree`: cost 766 (complex tree algorithm)
+
+**Experimental batched functions (not used in production):**
+- `MontReduceLazy4`: cost 89 (only 9 over threshold)
+- `MulMontLazy4`: cost 125
+- `MulMont4`: cost 153
+
+Splitting InvMont or BatchInvMontTree wouldn't help - they're inherently complex
+and function call overhead would add cost. The batched 4-way functions showed
+that call overhead negates ILP benefits when functions can't inline.
+
+**Conclusion:** All hot-path functions already inline. The non-inlinable functions
+are complex algorithms where splitting would hurt performance.
+
 ### Profiling Breakdown (Final)
 
 Sign operation (~4.1ms):
@@ -265,7 +312,7 @@ The codebase is now well-optimized:
 - Montgomery multiplication with lazy reduction
 - Tree-based batch inversion with O(log n) depth
 - Lazy matrix-vector multiply with fused accumulation
-- MDS matrix with 7-way unrolled MADD chains
+- MDS matrix with 5-way unrolled MADD chains
 - Zero-allocation Poseidon with reusable scratch buffers
 
 ### Architecture Notes
