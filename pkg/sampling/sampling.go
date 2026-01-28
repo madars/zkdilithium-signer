@@ -59,13 +59,72 @@ func SampleLeqEta(stream []byte) poly.Poly {
 	return cs
 }
 
+// SampleLeqEtaStreaming samples using streaming XOF256.
+func SampleLeqEtaStreaming(xof *hash.StreamingXOF256) poly.Poly {
+	var cs poly.Poly
+	i := 0
+	for i < field.N {
+		b0, b1, b2 := xof.Read3()
+		ds := [6]uint8{
+			b0 & 15,
+			b0 >> 4,
+			b1 & 15,
+			b1 >> 4,
+			b2 & 15,
+			b2 >> 4,
+		}
+		for _, d := range ds {
+			if d <= 14 {
+				cs[i] = field.Mod(int64(2 - int(d%5)))
+				i++
+				if i >= field.N {
+					break
+				}
+			}
+		}
+	}
+	return cs
+}
+
+// SampleUniformStreaming samples a polynomial using streaming XOF.
+// More efficient than SampleUniform as it only reads bytes as needed.
+func SampleUniformStreaming(xof *hash.StreamingXOF128) poly.Poly {
+	var cs poly.Poly
+	i := 0
+	for i < field.N {
+		b0, b1, b2 := xof.Read3()
+		d := (uint32(b0) + (uint32(b1) << 8) + (uint32(b2) << 16)) & 0x7FFFFF
+		if d < field.Q {
+			cs[i] = d
+			i++
+		}
+	}
+	return cs
+}
+
+// SampleUniformClonable samples a polynomial using clonable XOF.
+func SampleUniformClonable(xof *hash.SeedClonableXOF128) poly.Poly {
+	var cs poly.Poly
+	i := 0
+	for i < field.N {
+		b0, b1, b2 := xof.Read3()
+		d := (uint32(b0) + (uint32(b1) << 8) + (uint32(b2) << 16)) & 0x7FFFFF
+		if d < field.Q {
+			cs[i] = d
+			i++
+		}
+	}
+	return cs
+}
+
 // SampleMatrix samples the public matrix A from seed rho.
 func SampleMatrix(rho []byte) [field.K][field.L]poly.Poly {
 	var A [field.K][field.L]poly.Poly
+	xof := hash.NewStreamingXOF128Reusable()
 	for i := 0; i < field.K; i++ {
 		for j := 0; j < field.L; j++ {
-			stream := hash.XOF128(rho, uint16(256*i+j))
-			A[i][j] = SampleUniform(stream)
+			xof.Reset(rho, uint16(256*i+j))
+			A[i][j] = SampleUniformStreaming(xof)
 		}
 	}
 	return A
@@ -73,13 +132,14 @@ func SampleMatrix(rho []byte) [field.K][field.L]poly.Poly {
 
 // SampleSecret samples secret vectors s1, s2 from seed rho.
 func SampleSecret(rho []byte) (s1 [field.L]poly.Poly, s2 [field.K]poly.Poly) {
+	xof := hash.NewStreamingXOF256Reusable()
 	for i := 0; i < field.L; i++ {
-		stream := hash.XOF256(rho, uint16(i))
-		s1[i] = SampleLeqEta(stream)
+		xof.Reset(rho, uint16(i))
+		s1[i] = SampleLeqEtaStreaming(xof)
 	}
 	for i := 0; i < field.K; i++ {
-		stream := hash.XOF256(rho, uint16(field.L+i))
-		s2[i] = SampleLeqEta(stream)
+		xof.Reset(rho, uint16(field.L+i))
+		s2[i] = SampleLeqEtaStreaming(xof)
 	}
 	return
 }

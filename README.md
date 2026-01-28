@@ -65,7 +65,7 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.10 ms | 3.1 ms | 31x | 1.0x |
+| Gen | 0.10 ms | 0.076 ms | 3.1 ms | 41x | 1.3x |
 | Sign | 19.8 ms | 5.0 ms | 461 ms | 92x | 4.0x |
 | Verify | 2.9 ms | 0.78 ms | 71.5 ms | 92x | 3.7x |
 
@@ -100,6 +100,11 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 
 8. **Zero-allocation Poseidon** - Reusable scratch buffers reduce allocations
    from ~7000 to ~110 per Sign.
+
+9. **Gen-specific optimizations** - Streaming XOF (reuse one rate-sized buffer instead of
+   allocating 1344 bytes per polynomial), precompute s1Hat (NTT once instead of K times),
+   and skip Montgomery form (use regular Mul for matrix-vector product). Results: 24%
+   faster, 60% less memory.
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 

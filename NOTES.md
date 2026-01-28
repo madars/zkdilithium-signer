@@ -78,6 +78,25 @@ which fits in uint32.
 - Interleave multiplications: start two MULs before completing Montgomery reductions
 - Results: BatchInvMont 342ns → 306ns (~10%), Sign ~5.2ms → ~5.0ms (~4%), Verify ~810μs → ~780μs (~4%)
 
+#### 10. Gen Optimizations (Key Generation)
+Gen doesn't use Poseidon, so Sign/Verify optimizations don't apply. Gen's bottleneck is SHA3/SHAKE
+for sampling (40%+ of runtime). Applied three optimizations:
+
+**Streaming XOF** - Instead of allocating 1344-byte buffers per polynomial, use a single
+reusable 168-byte buffer (one SHAKE128 rate). The buffer is refilled as needed during
+rejection sampling. Memory reduced from 39KB to 15.5KB per Gen (-60%). Note: Keccak
+permutation count is similar since Go's sha3 library buffers internally.
+
+**Precompute s1Hat** - The inner loop computed NTT(s1[j]) for each row of A (K=4 times).
+Since s1 doesn't change, precompute s1Hat = NTT(s1) once and reuse. Reduced NTT calls from
+16 to 4, saving ~17% of Gen time.
+
+**Skip Montgomery for Gen** - Gen only needs A*s1 multiplication, not the full Montgomery
+chain used in Sign. Changed to use `ntt.MulNTT` (regular Mul) instead of `poly.MulNTT`
+(MulMont), eliminating ToMont/FromMont conversions on A, s1, s2, and t. Saved ~5%.
+
+Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% smaller**).
+
 ### Optimizations That Did NOT Work
 
 #### 1. Solinas/Proth Reduction

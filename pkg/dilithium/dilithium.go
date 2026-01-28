@@ -5,6 +5,7 @@ import (
 	"zkdilithium-signer/pkg/encoding"
 	"zkdilithium-signer/pkg/field"
 	"zkdilithium-signer/pkg/hash"
+	"zkdilithium-signer/pkg/ntt"
 	"zkdilithium-signer/pkg/poly"
 	"zkdilithium-signer/pkg/sampling"
 )
@@ -21,41 +22,30 @@ func Gen(seed []byte) (pk, sk []byte) {
 	rho2 := expandedSeed[32 : 32+64]
 	key := expandedSeed[32+64:]
 
-	// Sample matrix A in NTT domain, convert to Montgomery form
+	// Sample matrix A in NTT domain (normal form)
 	Ahat := sampling.SampleMatrix(rho)
-	for i := 0; i < field.K; i++ {
-		for j := 0; j < field.L; j++ {
-			Ahat[i][j].ToMont()
-		}
-	}
 
-	// Sample secret vectors, convert to Montgomery form
+	// Sample secret vectors (normal form)
 	s1, s2 := sampling.SampleSecret(rho2)
-	for i := 0; i < field.L; i++ {
-		s1[i].ToMont()
-	}
-	for i := 0; i < field.K; i++ {
-		s2[i].ToMont()
+
+	// Precompute NTT of s1 (normal form)
+	var s1Hat [field.L]poly.Poly
+	for j := 0; j < field.L; j++ {
+		s1Hat[j] = s1[j]
+		s1Hat[j].NTT()
 	}
 
-	// Compute t = A*s1 + s2 (all in Montgomery form)
+	// Compute t = A*s1 + s2 (all in normal form, no Montgomery)
 	var t [field.K]poly.Poly
 	for i := 0; i < field.K; i++ {
 		var sum poly.Poly
 		for j := 0; j < field.L; j++ {
-			var s1NTT poly.Poly = s1[j]
-			s1NTT.NTT() // Mont -> Mont (NTT domain)
 			var prod poly.Poly
-			poly.MulNTT(&Ahat[i][j], &s1NTT, &prod) // Mont * Mont -> Mont
+			ntt.MulNTT((*[field.N]uint32)(&Ahat[i][j]), (*[field.N]uint32)(&s1Hat[j]), (*[field.N]uint32)(&prod))
 			poly.Add(&sum, &prod, &sum)
 		}
-		sum.InvNTT() // Mont -> Mont (time domain)
+		sum.InvNTT()
 		poly.Add(&sum, &s2[i], &t[i])
-	}
-
-	// Convert t from Montgomery for packing
-	for i := 0; i < field.K; i++ {
-		t[i].FromMont()
 	}
 
 	// Pack t
@@ -67,13 +57,7 @@ func Gen(seed []byte) (pk, sk []byte) {
 	// Compute tr = H(rho || tPacked)
 	tr := hash.H(append(rho, tPacked...), 32)
 
-	// Convert s1, s2 from Montgomery for packing
-	for i := 0; i < field.L; i++ {
-		s1[i].FromMont()
-	}
-	for i := 0; i < field.K; i++ {
-		s2[i].FromMont()
-	}
+	// s1, s2 are already in normal form (no Montgomery conversion)
 
 	// Pack s1 and s2
 	s1Packed := make([]byte, 0, field.L*96)
