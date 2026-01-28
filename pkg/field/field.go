@@ -332,53 +332,44 @@ func InvMont(aM uint32) uint32 {
 		return 0
 	}
 
-	// Q-2 = 7340031 = 0b110_11111111111111111111
-	// Structure: header "110" followed by 20 ones = 5 blocks of "1111"
+	// Q-2 = 7340031
+	// Addition chain from: addchain search -add 10 -double 7 7340031
+	// Source: https://github.com/mmcloughlin/addchain
+	// 29 ops (22 squares + 7 multiplies), cost 224 with add=10, double=7
 
-	// 1. Precompute small powers
-	x2 := mulMontLazy(aM, aM)   // a^2
-	x3 := mulMontLazy(x2, aM)   // a^3  (bits: 11)
-	x6 := mulMontLazy(x3, x3)   // a^6  (bits: 110) <- header
-	x12 := mulMontLazy(x6, x6)  // a^12
-	x15 := mulMontLazy(x12, x3) // a^15 (bits: 1111)
+	_10 := mulMontLazy(aM, aM)
+	_11 := mulMontLazy(aM, _10)
+	_1100 := mulMontLazy(_11, _11)
+	_1100 = mulMontLazy(_1100, _1100)
+	_1111 := mulMontLazy(_11, _1100)
+	_1100000 := mulMontLazy(_1100, _1100)
+	_1100000 = mulMontLazy(_1100000, _1100000)
+	_1100000 = mulMontLazy(_1100000, _1100000)
+	_1101111 := mulMontLazy(_1111, _1100000)
 
-	// 2. Append "1111" five times to the header "110"
-	res := x6
+	// i23 = ((_1101111 << 4 + _1111) << 4 + _1111) << 4
+	i23 := mulMontLazy(_1101111, _1101111)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, _1111)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, _1111)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
+	i23 = mulMontLazy(i23, i23)
 
-	// Iteration 1: shift left 4, append 1111
+	// return = (_1111 + i23) << 4 + _1111
+	res := mulMontLazy(_1111, i23)
 	res = mulMontLazy(res, res)
 	res = mulMontLazy(res, res)
 	res = mulMontLazy(res, res)
 	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, x15)
-
-	// Iteration 2
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, x15)
-
-	// Iteration 3
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, x15)
-
-	// Iteration 4
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, x15)
-
-	// Iteration 5
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, x15)
+	res = mulMontLazy(res, _1111)
 
 	return reduce(res)
 }
