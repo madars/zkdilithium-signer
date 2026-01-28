@@ -55,7 +55,11 @@ func Gen(seed []byte) (pk, sk []byte) {
 	}
 
 	// Compute tr = H(rho || tPacked)
-	tr := hash.H(append(rho, tPacked...), 32)
+	// Note: we build a fresh buffer to avoid aliasing issues if rho has spare capacity
+	trInput := make([]byte, len(rho)+len(tPacked))
+	copy(trInput, rho)
+	copy(trInput[len(rho):], tPacked)
+	tr := hash.H(trInput, 32)
 
 	// s1, s2 are already in normal form (no Montgomery conversion)
 
@@ -70,7 +74,9 @@ func Gen(seed []byte) (pk, sk []byte) {
 	}
 
 	// Public key: rho || tPacked
-	pk = append(rho, tPacked...)
+	pk = make([]byte, len(rho)+len(tPacked))
+	copy(pk, rho)
+	copy(pk[len(rho):], tPacked)
 
 	// Secret key: rho || key || tr || s1Packed || s2Packed || tPacked
 	sk = make([]byte, 0, 32+32+32+96*field.L+96*field.K+field.K*field.N*3)

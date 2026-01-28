@@ -147,8 +147,14 @@ func SampleSecret(rho []byte) (s1 [field.L]poly.Poly, s2 [field.K]poly.Poly) {
 // SampleY samples the masking vector y from rho and nonce.
 func SampleY(rho []byte, nonce int) [field.L]poly.Poly {
 	var y [field.L]poly.Poly
+	// Build input buffer explicitly to avoid aliasing if rho has spare capacity
+	buf := make([]byte, len(rho)+2)
+	copy(buf, rho)
 	for i := 0; i < field.L; i++ {
-		stream := hash.H(append(rho, byte((nonce+i)&0xFF), byte((nonce+i)>>8)), field.PolyLeGamma1Size)
+		n := nonce + i
+		buf[len(rho)] = byte(n & 0xFF)
+		buf[len(rho)+1] = byte(n >> 8)
+		stream := hash.H(buf, field.PolyLeGamma1Size)
 		y[i] = encoding.UnpackPolyLeGamma1(stream)
 	}
 	return y
