@@ -1,14 +1,16 @@
 package field
 
-// BatchInvMontParallel computes batch modular inverse with ILP optimization.
-// Processes pairs of elements to enable instruction-level parallelism.
-// Uses branchless zero handling to keep operations uniform.
+// BatchInvMontLinear computes batch modular inverse with linear dependency chain.
+// Despite processing pairs, the forward pass has sequential dependencies:
+// prods[i+1] depends on prods[i], limiting true ILP.
+//
+// For better parallelism, use BatchInvMontTree which has O(log n) depth.
 //
 // Key ideas:
 // 1. Branchless mask: nonZeroMask = (x | -x) >> 63
 // 2. Process pairs: start both MULs before completing reductions
 // 3. Uniform operations enable better pipelining
-func BatchInvMontParallel(xs []uint32, scratch []uint32) {
+func BatchInvMontLinear(xs []uint32, scratch []uint32) {
 	n := len(xs)
 	if n == 0 {
 		return

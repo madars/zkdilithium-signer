@@ -27,13 +27,13 @@ func TestBatchInvMontTree(t *testing.T) {
 			scratch2 := make([]uint32, 3*n) // Tree needs ~2n for layers, extra for safety
 
 			// Run both methods
-			BatchInvMontParallel(xs1, scratch1)
+			BatchInvMontLinear(xs1, scratch1)
 			BatchInvMontTreeNoZero(xs2, scratch2)
 
 			// Compare results
 			for i := 0; i < n; i++ {
 				if xs1[i] != xs2[i] {
-					t.Errorf("index %d: parallel=%d, tree=%d", i, xs1[i], xs2[i])
+					t.Errorf("index %d: linear=%d, tree=%d", i, xs1[i], xs2[i])
 				}
 			}
 
@@ -71,17 +71,17 @@ func TestBatchInvMontTreeWithZeros(t *testing.T) {
 	scratch1 := make([]uint32, n)
 	scratch2 := make([]uint32, 3*n)
 
-	BatchInvMontParallel(xs1, scratch1)
+	BatchInvMontLinear(xs1, scratch1)
 	BatchInvMontTree(xs2, scratch2)
 
 	for i := 0; i < n; i++ {
 		if xs1[i] != xs2[i] {
-			t.Errorf("index %d: parallel=%d, tree=%d", i, xs1[i], xs2[i])
+			t.Errorf("index %d: linear=%d, tree=%d", i, xs1[i], xs2[i])
 		}
 	}
 }
 
-func BenchmarkBatchInvParallel35(b *testing.B) {
+func BenchmarkBatchInvLinear35(b *testing.B) {
 	xs := make([]uint32, 35)
 	scratch := make([]uint32, 35)
 	for i := 0; i < 35; i++ {
@@ -93,7 +93,7 @@ func BenchmarkBatchInvParallel35(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		copy(xs, orig)
-		BatchInvMontParallel(xs, scratch)
+		BatchInvMontLinear(xs, scratch)
 	}
 }
 
@@ -130,7 +130,7 @@ func BenchmarkBatchInvTreeNoZero35(b *testing.B) {
 }
 
 // Benchmark with larger sizes
-func BenchmarkBatchInvParallel256(b *testing.B) {
+func BenchmarkBatchInvLinear256(b *testing.B) {
 	xs := make([]uint32, 256)
 	scratch := make([]uint32, 256)
 	for i := 0; i < 256; i++ {
@@ -142,7 +142,7 @@ func BenchmarkBatchInvParallel256(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		copy(xs, orig)
-		BatchInvMontParallel(xs, scratch)
+		BatchInvMontLinear(xs, scratch)
 	}
 }
 

@@ -2,7 +2,7 @@ package field
 
 import "testing"
 
-func TestBatchInvMontParallel(t *testing.T) {
+func TestBatchInvMontLinear(t *testing.T) {
 	n := PosT // 35
 
 	xs := make([]uint32, n)
@@ -15,7 +15,7 @@ func TestBatchInvMontParallel(t *testing.T) {
 	scratch := make([]uint32, n)
 	scratchRef := make([]uint32, n)
 
-	BatchInvMontParallel(xs, scratch)
+	BatchInvMontLinear(xs, scratch)
 	BatchInvMont(xsRef, scratchRef)
 
 	for i := range xs {
@@ -25,7 +25,7 @@ func TestBatchInvMontParallel(t *testing.T) {
 	}
 }
 
-func TestBatchInvMontParallelWithZeros(t *testing.T) {
+func TestBatchInvMontLinearWithZeros(t *testing.T) {
 	xs := []uint32{ToMont(1), 0, ToMont(3), 0, ToMont(5)}
 	xsRef := make([]uint32, len(xs))
 	copy(xsRef, xs)
@@ -33,7 +33,7 @@ func TestBatchInvMontParallelWithZeros(t *testing.T) {
 	scratch := make([]uint32, len(xs))
 	scratchRef := make([]uint32, len(xs))
 
-	BatchInvMontParallel(xs, scratch)
+	BatchInvMontLinear(xs, scratch)
 	BatchInvMont(xsRef, scratchRef)
 
 	for i := range xs {
@@ -43,7 +43,7 @@ func TestBatchInvMontParallelWithZeros(t *testing.T) {
 	}
 }
 
-func TestBatchInvMontParallelOddN(t *testing.T) {
+func TestBatchInvMontLinearOddN(t *testing.T) {
 	// Test odd-sized array
 	for n := 1; n <= 10; n++ {
 		xs := make([]uint32, n)
@@ -56,7 +56,7 @@ func TestBatchInvMontParallelOddN(t *testing.T) {
 		scratch := make([]uint32, n)
 		scratchRef := make([]uint32, n)
 
-		BatchInvMontParallel(xs, scratch)
+		BatchInvMontLinear(xs, scratch)
 		BatchInvMont(xsRef, scratchRef)
 
 		for i := range xs {
@@ -67,7 +67,7 @@ func TestBatchInvMontParallelOddN(t *testing.T) {
 	}
 }
 
-func TestBatchInvMontParallelCorrectness(t *testing.T) {
+func TestBatchInvMontLinearCorrectness(t *testing.T) {
 	n := 35
 	xs := make([]uint32, n)
 	original := make([]uint32, n)
@@ -78,7 +78,7 @@ func TestBatchInvMontParallelCorrectness(t *testing.T) {
 	}
 
 	scratch := make([]uint32, n)
-	BatchInvMontParallel(xs, scratch)
+	BatchInvMontLinear(xs, scratch)
 
 	oneM := ToMont(1)
 	for i := range xs {
@@ -89,7 +89,7 @@ func TestBatchInvMontParallelCorrectness(t *testing.T) {
 	}
 }
 
-func BenchmarkBatchInvMontParallel(b *testing.B) {
+func BenchmarkBatchInvMontLinear(b *testing.B) {
 	xs := make([]uint32, PosT)
 	scratch := make([]uint32, PosT)
 	for i := range xs {
@@ -101,7 +101,7 @@ func BenchmarkBatchInvMontParallel(b *testing.B) {
 		for j := range xs {
 			xs[j] = ToMont(uint32(j + 1))
 		}
-		BatchInvMontParallel(xs, scratch)
+		BatchInvMontLinear(xs, scratch)
 	}
 }
 
