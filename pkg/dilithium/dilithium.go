@@ -144,26 +144,21 @@ func Sign(sk, msg []byte) []byte {
 
 	yNonce := 0
 	for {
-		// Sample y, convert to Montgomery form
+		// Sample y, convert to Montgomery form and NTT
 		y := sampling.SampleY(rho2, yNonce)
 		yNonce += field.L
+		var yHat [field.L]poly.Poly
 		for i := 0; i < field.L; i++ {
 			y[i].ToMont()
+			yHat[i] = y[i]
+			yHat[i].NTT()
 		}
 
-		// Compute w = A * y (Montgomery form throughout)
+		// Compute w = A * y using lazy accumulation (Montgomery form)
 		var wMont [field.K]poly.Poly
+		poly.MatVecMulNTTLazy(&Ahat, &yHat, &wMont)
 		for i := 0; i < field.K; i++ {
-			var sum poly.Poly
-			for j := 0; j < field.L; j++ {
-				var yNTT poly.Poly = y[j]
-				yNTT.NTT()
-				var prod poly.Poly
-				poly.MulNTT(&Ahat[i][j], &yNTT, &prod)
-				poly.Add(&sum, &prod, &sum)
-			}
-			sum.InvNTT()
-			wMont[i] = sum
+			wMont[i].InvNTT()
 		}
 
 		// Convert w from Montgomery for Decompose
@@ -361,30 +356,26 @@ func Verify(pk, msg, sig []byte) bool {
 		tHat[i].NTT()
 	}
 
+	// Compute Az using lazy accumulation
+	var Az [field.K]poly.Poly
+	poly.MatVecMulNTTLazy(&Ahat, &zHat, &Az)
+
+	// Compute w1 = Az - tc for each row
 	var w1 [field.K]poly.Poly
 	for i := 0; i < field.K; i++ {
-		// Az (Montgomery form)
-		var Az poly.Poly
-		for j := 0; j < field.L; j++ {
-			var prod poly.Poly
-			poly.MulNTT(&Ahat[i][j], &zHat[j], &prod)
-			poly.Add(&Az, &prod, &Az)
-		}
-
 		// tc (Montgomery form)
 		var tc poly.Poly
 		poly.MulNTT(&tHat[i], &cHat, &tc)
 
 		// Az - tc (Montgomery form)
-		var diff poly.Poly
-		poly.Sub(&Az, &tc, &diff)
-		diff.InvNTT()
+		poly.Sub(&Az[i], &tc, &Az[i])
+		Az[i].InvNTT()
 
 		// Convert from Montgomery for Decompose
-		diff.FromMont()
+		Az[i].FromMont()
 
 		// Decompose
-		_, w1[i] = diff.Decompose()
+		_, w1[i] = Az[i].Decompose()
 	}
 
 	// Recompute challenge

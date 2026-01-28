@@ -25,8 +25,8 @@ Why bottom-up with test vectors at each level?
 - Allocations: ~7000+ per Sign
 
 ### Final Results
-- Sign: 5.0ms (4.0x faster than baseline 19.8ms)
-- Verify: 0.78ms (3.7x faster than baseline 2.9ms)
+- Sign: 4.2ms (4.7x faster than baseline 19.8ms)
+- Verify: 0.66ms (4.4x faster than baseline 2.9ms)
 - Allocations: ~110 per Sign
 
 ### Optimizations Applied (in commit order)
@@ -96,6 +96,25 @@ chain used in Sign. Changed to use `ntt.MulNTT` (regular Mul) instead of `poly.M
 (MulMont), eliminating ToMont/FromMont conversions on A, s1, s2, and t. Saved ~5%.
 
 Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% smaller**).
+
+#### 11. Branchless Reduce and bits.Reverse8
+- `reduce()` now uses sign-bit mask: `b + (Q & uint32(int32(b)>>31))` instead of
+  `if a >= Q { return a - Q }`. Avoids ~50% branch misprediction for uniform inputs.
+- `Brv()` uses `bits.Reverse8()` which compiles to RBIT on ARM64.
+- Minimal measurable impact but cleaner code.
+
+#### 12. Fused Reduction in BatchInvMont
+- Previous: backward pass used `mulMontLazy`, then separate O(n) loop to reduce all outputs.
+- Now: backward pass uses `MulMont` (strict) for `xs[i]`, fusing reduction into the pass.
+- Saves O(n) memory reads/writes, improves cache locality.
+- Results: ~5% faster BatchInvMont.
+
+#### 13. Lazy Matrix-Vector Multiply
+- `w = A * y` in Sign: accumulate L=4 products in uint64, single MontReduce per coefficient.
+- Previous: L `MulMont` + (L-1) `Add` = 7 conditional subtractions per coefficient.
+- Now: L multiplies + 1 MontReduce = 1 conditional subtraction per coefficient.
+- Also fixed redundant NTT: `NTT(y[j])` was computed K×L=16 times, now L=4 times.
+- Results: Sign ~1.6% faster.
 
 ### Optimizations That Did NOT Work
 
@@ -181,9 +200,9 @@ Estimated impact: ~0.1% of Sign time. Not worth hand-writing assembly.
 
 ### Profiling Breakdown (Final)
 
-Sign operation (~5.0ms):
+Sign operation (~4.2ms):
 - poseidonRound: 42% (main hotspot)
-  - BatchInvMontParallel: 16% (S-box inversion)
+  - BatchInvMontTree: 16% (S-box inversion, tree-based)
   - MDS matrix: ~23% (7-unrolled MADD chains)
   - Round constants: ~3%
 - mulMontLazy: 20% (Montgomery multiplication)
@@ -195,7 +214,7 @@ All hot paths already use branchless operations:
 - Add/Sub: compiler generates CSEL (conditional select)
 - MDS: 7-way unrolled, efficient MUL/MADD chains
 - NTT: uses Add/Sub which compile to CSEL
-- BatchInvMontParallel: branchless zero handling + pair processing
+- reduce: branchless sign-bit mask
 
 ### What Would Help Further
 
@@ -209,9 +228,10 @@ At this point, pure Go optimizations are exhausted. The 4x speedup from baseline
 3. **Specialized Hardware** - FPGA/ASIC for field arithmetic.
 
 The codebase is now well-optimized:
-- All hot paths use branchless operations (CSEL)
+- All hot paths use branchless operations (CSEL, sign-bit masks)
 - Montgomery multiplication with lazy reduction
-- Batch inversion with pair processing for ILP
+- Tree-based batch inversion with O(log n) depth
+- Lazy matrix-vector multiply with fused accumulation
 - MDS matrix with 7-way unrolled MADD chains
 - Zero-allocation Poseidon with reusable scratch buffers
 

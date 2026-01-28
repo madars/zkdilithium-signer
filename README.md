@@ -107,6 +107,16 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
    and skip Montgomery form (use regular Mul for matrix-vector product). Results: 24%
    faster, 60% less memory.
 
+10. **Branchless reduce** - Uses sign-bit mask instead of conditional branch for
+    reducing values from <2Q to <Q. Avoids ~50% branch misprediction.
+
+11. **Fused reduction in BatchInvMont** - Performs final reduction during backward
+    pass instead of separate O(n) loop, improving cache locality.
+
+12. **Lazy matrix-vector multiply** - Accumulates L=4 products in uint64 with single
+    MontReduce per coefficient, instead of L MulMont + (L-1) Add with conditional subs.
+    Also precomputes NTT(y) once instead of K×L=16 times in Sign.
+
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 
 Run benchmarks:
