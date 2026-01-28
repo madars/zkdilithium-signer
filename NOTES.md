@@ -59,8 +59,8 @@ which fits in uint32.
 
 #### 7. MDS Loop Optimization
 - Use fixed-size array pointers `(*[35]uint32)` to eliminate bounds checks
-- Unroll inner loop by 7 (35 = 5 × 7) to reduce loop overhead
-- Use local temporaries (t0-t6) instead of accumulating directly
+- Unroll inner loop by 5 (35 = 7 × 5) - benchmarked faster than 7-unroll on ARM64
+- Use local temporaries (t0-t4) instead of accumulating directly
 - Results: MDS time reduced ~16%, overall Sign ~7% faster
 
 #### 8. Lazy Montgomery Reduction
@@ -198,21 +198,54 @@ Assembly inspection shows Q = 7340033 is reloaded each iteration (2 instructions
 per iteration × 35 iterations × 21 rounds = 1470 extra instructions per perm).
 Estimated impact: ~0.1% of Sign time. Not worth hand-writing assembly.
 
+#### 17. Manual "Branchless" Arithmetic (Add/Sub/MontReduce)
+Tried replacing `if` statements with mask-based branchless code:
+```go
+// Manual "branchless"
+mask := uint32(int32(sum-Q) >> 31)
+return sum - (Q & ^mask)
+```
+Result: **40% slower** for Add, **31% slower** for MontReduce.
+
+The Go compiler on ARM64 already generates branchless code using CSEL:
+```asm
+ADD    R0, R1, R1     ; sum = a + b
+MOVD   $Q, R2         ; load Q
+SUB    R2, R1, R3     ; R3 = sum - Q
+CMPW   R2, R1         ; compare
+CSEL   HS, R3, R1, R0 ; branchless conditional select!
+```
+Manual mask computation adds extra instructions on top of what the compiler
+already does optimally.
+
+#### 18. Batched mulMontLazy2
+Tried batching two Montgomery multiplications into one function call for ILP.
+Result: **No improvement** (2.83ns vs 2.94ns). ARM64's out-of-order execution
+already pipelines sequential mulMontLazy calls effectively.
+
+#### 19. MDS Unroll Factor Experiments
+Benchmarked different unroll factors for the 35-element MDS inner loop:
+- **Unroll-5: 283ns** (winner, 35 = 7 × 5)
+- Unroll-7: 299ns (previous)
+- Fully unrolled: 327ns (register pressure)
+- No unroll: 395ns
+
+Unroll-5 is ~5% faster than unroll-7. The 7 outer iterations with 5 multiplies
+each has better register allocation than 5 outer iterations with 7 multiplies.
+
 ### Profiling Breakdown (Final)
 
-Sign operation (~4.2ms):
-- poseidonRound: 42% (main hotspot)
-  - BatchInvMontTree: 16% (S-box inversion, tree-based)
-  - MDS matrix: ~23% (7-unrolled MADD chains)
+Sign operation (~4.1ms):
+- poseidonRound: 90% (main hotspot)
+  - BatchInvMontTree: 40% (S-box inversion, tree-based)
+  - MDS matrix: ~50% (5-unrolled multiply-accumulate)
   - Round constants: ~3%
-- mulMontLazy: 20% (Montgomery multiplication)
-- MontReduce: 3.5% (final reduction in MDS)
 - NTT: 3%, InvNTT: 2%
 - SHA3/SHAKE: ~2%
 
 All hot paths already use branchless operations:
 - Add/Sub: compiler generates CSEL (conditional select)
-- MDS: 7-way unrolled, efficient MUL/MADD chains
+- MDS: 5-way unrolled, efficient MUL/MADD chains
 - NTT: uses Add/Sub which compile to CSEL
 - reduce: branchless sign-bit mask
 

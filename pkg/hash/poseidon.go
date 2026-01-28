@@ -45,16 +45,14 @@ func poseidonRound(state, scratch []uint32, r int) {
 	for i := 0; i < field.PosT; i++ {
 		var acc uint64
 		invSlice := (*[field.PosT]uint32)(PosInvMont[i : i+field.PosT])
-		// Unroll by 7 (35 = 5 × 7), use local temps to reduce register pressure
-		for j := 0; j < 35; j += 7 {
+		// Unroll by 5 (35 = 7 × 5) - benchmarked faster than 7-unroll on ARM64
+		for j := 0; j < 35; j += 5 {
 			t0 := uint64(invSlice[j]) * uint64(scratchArr[j])
 			t1 := uint64(invSlice[j+1]) * uint64(scratchArr[j+1])
 			t2 := uint64(invSlice[j+2]) * uint64(scratchArr[j+2])
 			t3 := uint64(invSlice[j+3]) * uint64(scratchArr[j+3])
 			t4 := uint64(invSlice[j+4]) * uint64(scratchArr[j+4])
-			t5 := uint64(invSlice[j+5]) * uint64(scratchArr[j+5])
-			t6 := uint64(invSlice[j+6]) * uint64(scratchArr[j+6])
-			acc += t0 + t1 + t2 + t3 + t4 + t5 + t6
+			acc += t0 + t1 + t2 + t3 + t4
 		}
 		state[i] = field.MontReduce(acc)
 	}

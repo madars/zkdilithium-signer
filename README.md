@@ -97,7 +97,7 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
    avoiding unnecessary promotion since Q < 2^23.
 
 7. **MDS loop optimization** - Uses fixed-size array pointers to eliminate bounds
-   checks, unrolls inner loop by 7 (35 = 5 × 7).
+   checks, unrolls inner loop by 5 (35 = 7 × 5, benchmarked faster than 7-unroll on ARM64).
 
 8. **Zero-allocation Poseidon** - Reusable scratch buffers reduce allocations
    from ~7000 to ~110 per Sign.
