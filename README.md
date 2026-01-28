@@ -66,8 +66,8 @@ rejection sampling variance:
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
 | Gen | 0.10 ms | 0.076 ms | 3.1 ms | 41x | 1.3x |
-| Sign | 19.8 ms | 5.0 ms | 461 ms | 92x | 4.0x |
-| Verify | 2.9 ms | 0.78 ms | 71.5 ms | 92x | 3.7x |
+| Sign | 19.8 ms | 4.3 ms | 461 ms | 107x | 4.6x |
+| Verify | 2.9 ms | 0.66 ms | 71.5 ms | 108x | 4.4x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
 zkDilithium is ~250x slower, partly due to the STARK-friendly Poseidon hash, and partly because
@@ -89,8 +89,9 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 4. **Lazy Montgomery reduction** - Skip conditional subtraction in multiplication
    chains, reducing operations by ~5%.
 
-5. **Pair processing for ILP** - BatchInvMont processes pairs of elements with
-   branchless zero handling, enabling instruction-level parallelism (~10% faster).
+5. **Tree-based batch inversion** - Replaces sequential O(n) prefix products with
+   O(log n) depth binary tree. Each layer's operations are independent, enabling
+   instruction-level parallelism (~30% faster batch inversion, ~9% faster Sign).
 
 6. **Optimized Add/Sub** - Uses uint32/int32 arithmetic instead of uint64,
    avoiding unnecessary promotion since Q < 2^23.

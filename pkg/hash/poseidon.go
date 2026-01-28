@@ -24,7 +24,7 @@ func init() {
 
 // poseidonRound applies one round of the Poseidon permutation.
 // State is in Montgomery form throughout.
-// scratch is a reusable buffer of length PosT for zero-allocation operation.
+// scratch is a reusable buffer of length 3*PosT for zero-allocation operation.
 func poseidonRound(state, scratch []uint32, r int) {
 	// Add round constants (both in Montgomery form, addition preserves form)
 	for i := 0; i < field.PosT; i++ {
@@ -32,8 +32,10 @@ func poseidonRound(state, scratch []uint32, r int) {
 	}
 
 	// S-box: x -> x^(-1) in Montgomery form
-	// BatchInvMontParallel uses pair processing for better ILP
-	field.BatchInvMontParallel(state, scratch)
+	// BatchInvMontTree uses tree-based algorithm for O(log n) depth
+	// enabling better instruction-level parallelism
+	// Note: state elements could be zero after adding round constants
+	field.BatchInvMontTree(state, scratch)
 
 	// MDS matrix multiplication: M_ij = 1/(i+j+1)
 	// Lazy reduction: accumulate products in uint64, reduce once per row
@@ -61,7 +63,9 @@ func poseidonRound(state, scratch []uint32, r int) {
 // PoseidonPerm applies the full Poseidon permutation to state in place.
 // State must be in Montgomery form.
 func PoseidonPerm(state []uint32) {
-	var scratch [field.PosT]uint32
+	// Tree-based inversion needs n + n/2 + n/4 + ... ≈ 2n scratch
+	// For n=35: 35+18+9+5+3+2+1 = 73, so 3*n is safe
+	var scratch [3 * field.PosT]uint32
 	for r := 0; r < field.PosRF; r++ {
 		poseidonRound(state, scratch[:], r)
 	}
@@ -70,8 +74,8 @@ func PoseidonPerm(state []uint32) {
 // Poseidon is a sponge construction using the Poseidon permutation.
 // Internal state is kept in Montgomery form.
 type Poseidon struct {
-	s         [field.PosT]uint32 // Montgomery form
-	scratch   [field.PosT]uint32 // Reusable scratch buffer for zero-allocation
+	s         [field.PosT]uint32     // Montgomery form
+	scratch   [3 * field.PosT]uint32 // Reusable scratch buffer for tree-based inversion
 	absorbing bool
 	i         int
 }
