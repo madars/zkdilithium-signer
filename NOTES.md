@@ -25,8 +25,8 @@ Why bottom-up with test vectors at each level?
 - Allocations: ~7000+ per Sign
 
 ### Final Results
-- Sign: 5.5ms (3.6x faster)
-- Verify: 0.85ms (3.4x faster)
+- Sign: 5.2ms (3.8x faster than baseline 19.8ms)
+- Verify: 0.81ms (3.6x faster than baseline 2.9ms)
 - Allocations: ~110 per Sign
 
 ### Optimizations Applied (in commit order)
@@ -62,6 +62,14 @@ which fits in uint32.
 - Unroll inner loop by 7 (35 = 5 × 7) to reduce loop overhead
 - Use local temporaries (t0-t6) instead of accumulating directly
 - Results: MDS time reduced ~16%, overall Sign ~7% faster
+
+#### 8. Lazy Montgomery Reduction
+- Skip conditional subtraction in MulMont for internal chains
+- mulMontLazy outputs values < 2Q instead of < Q
+- Safe because: for Q=7340033, R=2^32, inputs < 2Q → output < 4Q²/R + Q < 2Q
+- Applied to InvMont (30 muls) and BatchInvMont (102 muls per batch)
+- Single reduce() at chain end instead of per-operation
+- Results: Sign 5.5ms → 5.25ms (~5%), Verify 0.85ms → 0.81ms (~5%)
 
 ### Optimizations That Did NOT Work
 
@@ -110,15 +118,25 @@ Made it 8% slower due to cache effects (4.9KB vs 276 bytes).
 Tried Go 1.21+ PGO with a CPU profile.
 Made Sign ~7% slower, possibly due to code layout changes hurting cache.
 
+#### 12. Platelet's Fast Fixed-Multiplier Technique for NTT/MDS
+Technique by platelet: https://codeforces.com/blog/entry/111566
+For `a * k mod m` with fixed k,m: precompute `p = ceil(k * 2^64 / m)`, then
+`result = hi((a * p mod 2^64) * m)`. Extends to sums: `(∑ai*bi) mod m = hi((∑ai*pi) * m)`.
+Applied to NTT (zeta multiplications) and MDS (matrix entries are fixed).
+Result: ~2% improvement - not worth the complexity. The technique replaces MontReduce
+with a simpler hi-mul, but MontReduce is already efficient (2 muls vs 1 mul).
+The real bottleneck is batch inversion (46% of runtime), not multiplication/reduction.
+
 ### Profiling Breakdown (Final)
 
-Sign operation (5.5ms):
-- poseidonRound: 90% (MDS matrix + batch inversion)
-- MulMont: 28% (called from BatchInvMont and InvMont)
-- BatchInvMont: 18% flat, 46% cumulative
-- MontReduce: 3%
-- NTT/InvNTT: 5% combined
-- SHA3/SHAKE: 1%
+Sign operation (5.2ms):
+- poseidonRound: 87% cumulative (MDS matrix + batch inversion)
+- BatchInvMont: 23% flat, 43% cumulative
+- mulMontLazy: 19% flat (the actual Montgomery multiplication work)
+- InvMont: 16% cumulative
+- MontReduce: 3% (used in MDS)
+- NTT: 4%, InvNTT: 2%
+- SHA3/SHAKE: 2%
 
 ### What Would Help Further
 

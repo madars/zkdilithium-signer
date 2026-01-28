@@ -264,6 +264,31 @@ func MulMont(a, b uint32) uint32 {
 	return uint32(u)
 }
 
+// mulMontLazy is MulMont without final conditional subtraction.
+// Output is < 2Q when inputs < 2Q.
+//
+// Safety analysis for Q = 7340033, R = 2^32:
+// - For inputs a, b < 2Q: t = a*b < 4Q² ≈ 2.15×10^14 < 2^48
+// - Montgomery reduction: u = (t + m*Q) >> 32 where m*Q < R*Q < 2^55
+// - Upper bound: u < (4Q²/R) + Q ≈ 50192 + 7340033 < 2Q ✓
+//
+// This is safe for chains of multiplications (e.g., InvMont, BatchInvMont)
+// as long as we reduce to < Q before operations requiring strict bounds.
+func mulMontLazy(a, b uint32) uint32 {
+	t := uint64(a) * uint64(b)
+	m := uint32(t) * montgomeryQInvNeg
+	u := (t + uint64(m)*Q) >> 32
+	return uint32(u)
+}
+
+// reduce brings a value < 2Q back to < Q.
+func reduce(a uint32) uint32 {
+	if a >= Q {
+		return a - Q
+	}
+	return a
+}
+
 // MontReduce performs Montgomery reduction on a uint64 value.
 // Used for lazy reduction: accumulate products in uint64, reduce once.
 // If input is sum of (a_M * b_M) values, result is in Montgomery form.
@@ -299,6 +324,9 @@ func FromMont(aM uint32) uint32 {
 // If input is a_M = a*R mod Q, output is (a^(-1))_M = a^(-1)*R mod Q.
 // Uses Fermat's little theorem: a^(-1) = a^(Q-2) mod Q.
 // All operations use MulMont so the Montgomery form is preserved.
+//
+// Uses lazy reduction internally: all 30 multiplications use mulMontLazy,
+// with a single reduce() at the end. This saves 29 conditional subtractions.
 func InvMont(aM uint32) uint32 {
 	if aM == 0 {
 		return 0
@@ -308,51 +336,51 @@ func InvMont(aM uint32) uint32 {
 	// Structure: header "110" followed by 20 ones = 5 blocks of "1111"
 
 	// 1. Precompute small powers
-	x2 := MulMont(aM, aM)    // a^2
-	x3 := MulMont(x2, aM)    // a^3  (bits: 11)
-	x6 := MulMont(x3, x3)    // a^6  (bits: 110) <- header
-	x12 := MulMont(x6, x6)   // a^12
-	x15 := MulMont(x12, x3)  // a^15 (bits: 1111)
+	x2 := mulMontLazy(aM, aM)   // a^2
+	x3 := mulMontLazy(x2, aM)   // a^3  (bits: 11)
+	x6 := mulMontLazy(x3, x3)   // a^6  (bits: 110) <- header
+	x12 := mulMontLazy(x6, x6)  // a^12
+	x15 := mulMontLazy(x12, x3) // a^15 (bits: 1111)
 
 	// 2. Append "1111" five times to the header "110"
 	res := x6
 
 	// Iteration 1: shift left 4, append 1111
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, x15)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, x15)
 
 	// Iteration 2
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, x15)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, x15)
 
 	// Iteration 3
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, x15)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, x15)
 
 	// Iteration 4
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, x15)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, x15)
 
 	// Iteration 5
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, res)
-	res = MulMont(res, x15)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, res)
+	res = mulMontLazy(res, x15)
 
-	return res
+	return reduce(res)
 }
 
 // BatchInvMont computes the modular inverse of each element in place.
@@ -366,7 +394,7 @@ func BatchInvMont(xs []uint32, scratch []uint32) {
 		return
 	}
 
-	// Use scratch for prefix products
+	// Use scratch for prefix products (lazy reduction, values < 2Q)
 	prods := scratch[:n]
 	prods[0] = xs[0]
 	if prods[0] == 0 {
@@ -376,24 +404,29 @@ func BatchInvMont(xs []uint32, scratch []uint32) {
 		if xs[i] == 0 {
 			prods[i] = prods[i-1]
 		} else {
-			prods[i] = MulMont(prods[i-1], xs[i])
+			prods[i] = mulMontLazy(prods[i-1], xs[i])
 		}
 	}
 
-	// Invert the final product (stays in Montgomery form)
-	inv := InvMont(prods[n-1])
+	// Invert the final product (InvMont handles lazy input, returns < Q)
+	inv := InvMont(reduce(prods[n-1]))
 
-	// Work backwards to compute individual inverses
+	// Work backwards to compute individual inverses (lazy throughout)
 	for i := n - 1; i > 0; i-- {
 		if xs[i] == 0 {
 			continue
 		}
 		oldXi := xs[i]
-		xs[i] = MulMont(inv, prods[i-1])
-		inv = MulMont(inv, oldXi)
+		xs[i] = mulMontLazy(inv, prods[i-1])
+		inv = mulMontLazy(inv, oldXi)
 	}
 	if xs[0] != 0 {
 		xs[0] = inv
+	}
+
+	// Final reduction: outputs must be < Q
+	for i := 0; i < n; i++ {
+		xs[i] = reduce(xs[i])
 	}
 }
 
