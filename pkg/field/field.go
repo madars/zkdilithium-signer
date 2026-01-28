@@ -388,6 +388,26 @@ func InvMont(aM uint32) uint32 {
 // Uses Montgomery's trick: n inversions with 1 inversion + 3(n-1) multiplications.
 // Elements that are 0 remain 0.
 // scratch must have length >= len(xs) and is used to avoid allocation.
+//
+// Lazy reduction safety proof for chained multiplications:
+//
+// Precondition: All xs[i] inputs are < Q (normalized Montgomery form).
+//
+// Forward pass: prods[i] = mulMontLazy(prods[i-1], xs[i])
+//   - Invariant: prods[i] < 2Q
+//   - Base: prods[0] = xs[0] < Q < 2Q ✓
+//   - Induction: If prods[i-1] < 2Q and xs[i] < Q:
+//       t = prods[i-1] * xs[i] < 2Q²
+//       u < 2Q²/R + Q = 2×7340033²/2³² + 7340033 ≈ 25096 + 7340033 < 2Q ✓
+//
+// Backward pass: inv = mulMontLazy(inv, oldXi) where oldXi < Q
+//   - inv starts < Q (from InvMont with reduce)
+//   - Recurrence: if inv < A and x < Q, then next inv < AQ/R + Q
+//   - Fixed point: A = QR/(R-Q) ≈ 7352594 for our parameters
+//   - So inv converges to ~7352594 < 2Q throughout the backward pass ✓
+//
+// xs[i] = mulMontLazy(inv, prods[i-1]) where inv < 2Q and prods[i-1] < 2Q
+//   - This is the general 2Q×2Q case covered by mulMontLazy's safety analysis ✓
 func BatchInvMont(xs []uint32, scratch []uint32) {
 	n := len(xs)
 	if n == 0 {
