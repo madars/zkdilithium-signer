@@ -66,8 +66,8 @@ rejection sampling variance:
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
 | Gen | 0.10 ms | 0.10 ms | 3.1 ms | 31x | 1.0x |
-| Sign | 19.8 ms | 6.0 ms | 461 ms | 77x | 3.3x |
-| Verify | 2.9 ms | 1.0 ms | 71.5 ms | 72x | 2.9x |
+| Sign | 19.8 ms | 5.5 ms | 461 ms | 84x | 3.6x |
+| Verify | 2.9 ms | 0.85 ms | 71.5 ms | 84x | 3.4x |
 
 ### Optimizations
 
@@ -83,6 +83,10 @@ rejection sampling variance:
    avoiding expensive division in the NTT inner loop. Isolated NTT benchmark shows
    ~36% improvement, though impact on Sign/Verify is marginal since Poseidon
    dominates runtime.
+
+4. **MDS loop optimization** - Uses fixed-size array pointers to eliminate bounds
+   checks, unrolls inner loop by 7 (35 = 5 × 7), and uses local temporaries for
+   better register allocation. Reduces MDS time by ~16%.
 
 *Note: We evaluated Solinas/Proth reduction exploiting Q = 7·2^20 + 1, but
 Montgomery multiplication empirically outperformed it on ARM64.*

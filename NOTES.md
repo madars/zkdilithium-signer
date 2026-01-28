@@ -25,8 +25,8 @@ Why bottom-up with test vectors at each level?
 - Allocations: ~7000+ per Sign
 
 ### Final Results
-- Sign: 6.0ms (3.3x faster)
-- Verify: 1.0ms (2.9x faster)
+- Sign: 5.5ms (3.6x faster)
+- Verify: 0.85ms (3.4x faster)
 - Allocations: ~110 per Sign
 
 ### Optimizations Applied (in commit order)
@@ -56,6 +56,12 @@ Reduced allocations from ~7000 to ~110 per Sign.
 #### 6. Optimized Add/Sub
 Use uint32/int32 arithmetic instead of uint64. Since Q < 2^23, we have a+b < 2^24
 which fits in uint32.
+
+#### 7. MDS Loop Optimization
+- Use fixed-size array pointers `(*[35]uint32)` to eliminate bounds checks
+- Unroll inner loop by 7 (35 = 5 × 7) to reduce loop overhead
+- Use local temporaries (t0-t6) instead of accumulating directly
+- Results: MDS time reduced ~16%, overall Sign ~7% faster
 
 ### Optimizations That Did NOT Work
 
@@ -90,15 +96,29 @@ No measurable improvement.
 Write inverses directly to output buffer instead of in-place + copy.
 The copy was only 0.6% of runtime. No measurable improvement.
 
+#### 9. BatchInvMontNonZero (removing zero checks)
+Theory: Poseidon state is never zero after adding round constants.
+Reality: While rare (~1/Q probability per element), zeros DO occur in Poseidon
+state during real signing over many test vectors. The optimization broke
+correctness on stress tests.
+
+#### 10. Precomputed Full 35×35 MDS Matrix
+Store `MDS[i][j]` instead of computing `PosInvMont[i+j]`.
+Made it 8% slower due to cache effects (4.9KB vs 276 bytes).
+
+#### 11. PGO (Profile-Guided Optimization)
+Tried Go 1.21+ PGO with a CPU profile.
+Made Sign ~7% slower, possibly due to code layout changes hurting cache.
+
 ### Profiling Breakdown (Final)
 
-Sign operation (6.0ms):
+Sign operation (5.5ms):
 - poseidonRound: 90% (MDS matrix + batch inversion)
-- MulMont: 24% (called from BatchInvMont and InvMont)
-- BatchInvMont: 17% flat, 41% cumulative
-- MontReduce: 4%
+- MulMont: 28% (called from BatchInvMont and InvMont)
+- BatchInvMont: 18% flat, 46% cumulative
+- MontReduce: 3%
 - NTT/InvNTT: 5% combined
-- SHA3/SHAKE: 1-2%
+- SHA3/SHAKE: 1%
 
 ### What Would Help Further
 

@@ -396,3 +396,4 @@ func BatchInvMont(xs []uint32, scratch []uint32) {
 		xs[0] = inv
 	}
 }
+
