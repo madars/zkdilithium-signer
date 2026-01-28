@@ -3,6 +3,8 @@
 // The field is Z_Q where Q = 2^23 - 2^20 + 1 = 7340033.
 package field
 
+import "math/bits"
+
 const (
 	// Q is the prime modulus: 2^23 - 2^20 + 1
 	Q = 7340033
@@ -208,10 +210,7 @@ func Exp(a uint32, e uint32) uint32 {
 
 // Brv reverses an 8-bit number (bit reversal for NTT).
 func Brv(x uint8) uint8 {
-	x = (x&0xF0)>>4 | (x&0x0F)<<4
-	x = (x&0xCC)>>2 | (x&0x33)<<2
-	x = (x&0xAA)>>1 | (x&0x55)<<1
-	return x
+	return bits.Reverse8(x)
 }
 
 // Decompose splits r into (r0, r1) such that r = r1 * 2 * Gamma2 + r0.
@@ -281,12 +280,16 @@ func mulMontLazy(a, b uint32) uint32 {
 	return uint32(u)
 }
 
-// reduce brings a value < 2Q back to < Q.
+// reduce brings a value < 2Q back to < Q in constant time (branchless).
+// Uses a sign-bit mask to avoid branch misprediction (~50% taken for uniform input).
 func reduce(a uint32) uint32 {
-	if a >= Q {
-		return a - Q
-	}
-	return a
+	// If a >= Q: (a - Q) is positive, mask = 0x00000000
+	// If a <  Q: (a - Q) is negative (int32 view), mask = 0xFFFFFFFF
+	b := a - Q
+	mask := uint32(int32(b) >> 31)
+	// If mask is -1: returns b + Q = a
+	// If mask is 0:  returns b = a - Q
+	return b + (Q & mask)
 }
 
 // MontReduce performs Montgomery reduction on a uint64 value.
@@ -378,6 +381,8 @@ func InvMont(aM uint32) uint32 {
 // All inputs and outputs are in Montgomery form.
 // Uses Montgomery's trick: n inversions with 1 inversion + 3(n-1) multiplications.
 // Elements that are 0 remain 0.
+//
+// WARNING: scratch must not alias xs (overlapping memory will corrupt results).
 // scratch must have length >= len(xs) and is used to avoid allocation.
 //
 // Lazy reduction safety proof for chained multiplications:
@@ -396,9 +401,6 @@ func InvMont(aM uint32) uint32 {
 //   - Recurrence: if inv < A and x < Q, then next inv < AQ/R + Q
 //   - Fixed point: A = QR/(R-Q) ≈ 7352594 for our parameters
 //   - So inv converges to ~7352594 < 2Q throughout the backward pass ✓
-//
-// xs[i] = mulMontLazy(inv, prods[i-1]) where inv < 2Q and prods[i-1] < 2Q
-//   - This is the general 2Q×2Q case covered by mulMontLazy's safety analysis ✓
 func BatchInvMont(xs []uint32, scratch []uint32) {
 	n := len(xs)
 	if n == 0 {
@@ -422,22 +424,22 @@ func BatchInvMont(xs []uint32, scratch []uint32) {
 	// Invert the final product (InvMont handles lazy input, returns < Q)
 	inv := InvMont(reduce(prods[n-1]))
 
-	// Work backwards to compute individual inverses (lazy throughout)
+	// Backward pass with fused reduction: finalize xs[i] immediately using
+	// MulMont (strict) instead of mulMontLazy. This saves O(n) memory accesses
+	// by avoiding a separate reduction loop while keeping the cache hot.
 	for i := n - 1; i > 0; i-- {
 		if xs[i] == 0 {
 			continue
 		}
 		oldXi := xs[i]
-		xs[i] = mulMontLazy(inv, prods[i-1])
+		// Use strict MulMont: xs[i] is finalized to < Q immediately
+		xs[i] = MulMont(inv, prods[i-1])
+		// Keep inv lazy (< 2Q) for the internal chain
 		inv = mulMontLazy(inv, oldXi)
 	}
 	if xs[0] != 0 {
-		xs[0] = inv
-	}
-
-	// Final reduction: outputs must be < Q
-	for i := 0; i < n; i++ {
-		xs[i] = reduce(xs[i])
+		// inv is < 2Q from the lazy chain, reduce to < Q
+		xs[0] = reduce(inv)
 	}
 }
 
