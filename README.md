@@ -66,7 +66,7 @@ rejection sampling variance:
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
 | Gen | 0.10 ms | 0.077 ms | 3.1 ms | 40x | 1.3x |
-| Sign | 19.8 ms | 4.1 ms | 461 ms | 112x | 4.8x |
+| Sign | 19.8 ms | 4.0 ms | 461 ms | 115x | 5.0x |
 | Verify | 2.9 ms | 0.65 ms | 71.5 ms | 110x | 4.5x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
@@ -117,9 +117,10 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
     MontReduce per coefficient, instead of L MulMont + (L-1) Add with conditional subs.
     Also precomputes NTT(y) once instead of K×L=16 times in Sign.
 
-13. **Conditional batch inversion dispatch** - Scans for zeros before batch inversion;
-    dispatches to faster NoZero path when none found (almost always, since zeros are
-    ~1/7M probability per element). Saves ~5% on Sign.
+13. **Conditional batch inversion dispatch + 4-pair ILP** - Scans for zeros before batch
+    inversion; dispatches to faster NoZero path when none found (almost always). Added 4-pair
+    unrolling in tree up-sweep/down-sweep for better instruction-level parallelism.
+    Batch inversion 212ns → 175ns (~17%), Sign ~8% faster.
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 

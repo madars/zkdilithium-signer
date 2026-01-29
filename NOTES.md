@@ -116,13 +116,16 @@ Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% sm
 - Also fixed redundant NTT: `NTT(y[j])` was computed K×L=16 times, now L=4 times.
 - Results: Sign ~1.6% faster.
 
-#### 14. Conditional BatchInvMontTree Dispatch
+#### 14. Conditional BatchInvMontTree Dispatch + 4-Pair ILP Unrolling
 - Poseidon S-box uses batch inversion. Zero handling adds overhead (copy with substitution,
   conditional writeback) even though zeros are extremely rare (~1/Q ≈ 1/7M per element).
-- New approach: scan for zeros first (O(n) comparisons), dispatch to `BatchInvMontTreeNoZero`
-  fast path when no zeros found (almost always).
-- The upfront scan costs ~10ns but saves ~27ns of zero-handling overhead.
-- Results: BatchInvMontTree 212ns → 193ns (~9%), Sign 4.35ms → 4.12ms (~5%).
+- New approach: scan for zeros first (O(n) comparisons), dispatch to fast path when no zeros
+  found (almost always).
+- Added 4-pair unrolling in up-sweep and down-sweep loops for better instruction-level
+  parallelism. Loads 4 parent values and 8 child values, performs 8 independent mulMontLazy
+  operations before storing results.
+- Benchmarked unroll factors: no unroll (184ns), 2-pair (179ns), **4-pair (175ns)**.
+- Results: BatchInvMontTree 212ns → 175ns (~17%), Sign 4.35ms → 4.0ms (~8%).
 
 ### Optimizations That Did NOT Work
 
