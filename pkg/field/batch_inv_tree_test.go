@@ -129,6 +129,22 @@ func BenchmarkBatchInvTreeNoZero35(b *testing.B) {
 	}
 }
 
+func BenchmarkBatchInvTreeCond35(b *testing.B) {
+	xs := make([]uint32, 35)
+	scratch := make([]uint32, 128)
+	for i := 0; i < 35; i++ {
+		xs[i] = ToMont(uint32(i + 1))
+	}
+	orig := make([]uint32, 35)
+	copy(orig, xs)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(xs, orig)
+		BatchInvMontTreeCond(xs, scratch)
+	}
+}
+
 // Benchmark with larger sizes
 func BenchmarkBatchInvLinear256(b *testing.B) {
 	xs := make([]uint32, 256)

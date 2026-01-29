@@ -35,7 +35,7 @@ func poseidonRound(state, scratch []uint32, r int) {
 	// BatchInvMontTree uses tree-based algorithm for O(log n) depth
 	// enabling better instruction-level parallelism
 	// Note: state elements could be zero after adding round constants
-	field.BatchInvMontTree(state, scratch)
+	field.BatchInvMontTreeCond(state, scratch)
 
 	// MDS matrix multiplication: M_ij = 1/(i+j+1)
 	// Lazy reduction: accumulate products in uint64, reduce once per row

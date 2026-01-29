@@ -107,6 +107,24 @@ func BatchInvMontTree(xs []uint32, scratch []uint32) {
 	}
 }
 
+// BatchInvMontTreeCond checks for zeros first and dispatches to the appropriate version.
+// If no zeros exist (common case), uses the faster NoZero path.
+func BatchInvMontTreeCond(xs []uint32, scratch []uint32) {
+	n := len(xs)
+	hasZero := false
+	for i := 0; i < n; i++ {
+		if xs[i] == 0 {
+			hasZero = true
+			break
+		}
+	}
+	if hasZero {
+		BatchInvMontTree(xs, scratch)
+	} else {
+		BatchInvMontTreeNoZero(xs, scratch)
+	}
+}
+
 // BatchInvMontTreeNoZero is optimized version assuming no zeros in input.
 // This is the common case for Poseidon S-box where inputs are field elements.
 // scratch must have capacity >= 2*n.

@@ -65,9 +65,9 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.076 ms | 3.1 ms | 41x | 1.3x |
-| Sign | 19.8 ms | 4.2 ms | 461 ms | 110x | 4.7x |
-| Verify | 2.9 ms | 0.66 ms | 71.5 ms | 108x | 4.4x |
+| Gen | 0.10 ms | 0.077 ms | 3.1 ms | 40x | 1.3x |
+| Sign | 19.8 ms | 4.1 ms | 461 ms | 112x | 4.8x |
+| Verify | 2.9 ms | 0.65 ms | 71.5 ms | 110x | 4.5x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
 zkDilithium is ~250x slower, partly due to the STARK-friendly Poseidon hash, and partly because
@@ -100,7 +100,7 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
    checks, unrolls inner loop by 5 (35 = 7 × 5, benchmarked faster than 7-unroll on ARM64).
 
 8. **Zero-allocation Poseidon** - Reusable scratch buffers reduce allocations
-   from ~7000 to ~110 per Sign.
+   from ~7000 to ~91 per Sign.
 
 9. **Gen-specific optimizations** - Streaming XOF (reuse one rate-sized buffer instead of
    allocating 1344 bytes per polynomial), precompute s1Hat (NTT once instead of K times),
@@ -116,6 +116,10 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 12. **Lazy matrix-vector multiply** - Accumulates L=4 products in uint64 with single
     MontReduce per coefficient, instead of L MulMont + (L-1) Add with conditional subs.
     Also precomputes NTT(y) once instead of K×L=16 times in Sign.
+
+13. **Conditional batch inversion dispatch** - Scans for zeros before batch inversion;
+    dispatches to faster NoZero path when none found (almost always, since zeros are
+    ~1/7M probability per element). Saves ~5% on Sign.
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 
