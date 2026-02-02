@@ -40,21 +40,50 @@ func poseidonRound(state, scratch []uint32, r int) {
 	// MDS matrix multiplication: M_ij = 1/(i+j+1)
 	// Lazy reduction: accumulate products in uint64, reduce once per row
 	// Use scratch as 'old' buffer (reuse after BatchInvMont is done with it)
+	// 3 independent accumulator chains for ILP (s01, s23, s4)
 	copy(scratch, state)
 	scratchArr := (*[field.PosT]uint32)(scratch)
 	for i := 0; i < field.PosT; i++ {
-		var acc uint64
-		invSlice := (*[field.PosT]uint32)(PosInvMont[i : i+field.PosT])
-		// Unroll by 5 (35 = 7 × 5) - benchmarked faster than 7-unroll on ARM64
-		for j := 0; j < 35; j += 5 {
-			t0 := uint64(invSlice[j]) * uint64(scratchArr[j])
-			t1 := uint64(invSlice[j+1]) * uint64(scratchArr[j+1])
-			t2 := uint64(invSlice[j+2]) * uint64(scratchArr[j+2])
-			t3 := uint64(invSlice[j+3]) * uint64(scratchArr[j+3])
-			t4 := uint64(invSlice[j+4]) * uint64(scratchArr[j+4])
-			acc += t0 + t1 + t2 + t3 + t4
-		}
-		state[i] = field.MontReduce(acc)
+		var s01, s23, s4 uint64
+		inv := (*[field.PosT]uint32)(PosInvMont[i : i+field.PosT])
+
+		// Fully unroll 35 elements as 7 groups of 5
+		// Group 0: j=0..4
+		s01 += uint64(inv[0])*uint64(scratchArr[0]) + uint64(inv[1])*uint64(scratchArr[1])
+		s23 += uint64(inv[2])*uint64(scratchArr[2]) + uint64(inv[3])*uint64(scratchArr[3])
+		s4 += uint64(inv[4]) * uint64(scratchArr[4])
+
+		// Group 1: j=5..9
+		s01 += uint64(inv[5])*uint64(scratchArr[5]) + uint64(inv[6])*uint64(scratchArr[6])
+		s23 += uint64(inv[7])*uint64(scratchArr[7]) + uint64(inv[8])*uint64(scratchArr[8])
+		s4 += uint64(inv[9]) * uint64(scratchArr[9])
+
+		// Group 2: j=10..14
+		s01 += uint64(inv[10])*uint64(scratchArr[10]) + uint64(inv[11])*uint64(scratchArr[11])
+		s23 += uint64(inv[12])*uint64(scratchArr[12]) + uint64(inv[13])*uint64(scratchArr[13])
+		s4 += uint64(inv[14]) * uint64(scratchArr[14])
+
+		// Group 3: j=15..19
+		s01 += uint64(inv[15])*uint64(scratchArr[15]) + uint64(inv[16])*uint64(scratchArr[16])
+		s23 += uint64(inv[17])*uint64(scratchArr[17]) + uint64(inv[18])*uint64(scratchArr[18])
+		s4 += uint64(inv[19]) * uint64(scratchArr[19])
+
+		// Group 4: j=20..24
+		s01 += uint64(inv[20])*uint64(scratchArr[20]) + uint64(inv[21])*uint64(scratchArr[21])
+		s23 += uint64(inv[22])*uint64(scratchArr[22]) + uint64(inv[23])*uint64(scratchArr[23])
+		s4 += uint64(inv[24]) * uint64(scratchArr[24])
+
+		// Group 5: j=25..29
+		s01 += uint64(inv[25])*uint64(scratchArr[25]) + uint64(inv[26])*uint64(scratchArr[26])
+		s23 += uint64(inv[27])*uint64(scratchArr[27]) + uint64(inv[28])*uint64(scratchArr[28])
+		s4 += uint64(inv[29]) * uint64(scratchArr[29])
+
+		// Group 6: j=30..34
+		s01 += uint64(inv[30])*uint64(scratchArr[30]) + uint64(inv[31])*uint64(scratchArr[31])
+		s23 += uint64(inv[32])*uint64(scratchArr[32]) + uint64(inv[33])*uint64(scratchArr[33])
+		s4 += uint64(inv[34]) * uint64(scratchArr[34])
+
+		state[i] = field.MontReduce(s01 + s23 + s4)
 	}
 }
 

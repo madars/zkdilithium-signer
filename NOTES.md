@@ -25,8 +25,8 @@ Why bottom-up with test vectors at each level?
 - Allocations: ~7000+ per Sign
 
 ### Final Results
-- Sign: 4.2ms (4.7x faster than baseline 19.8ms)
-- Verify: 0.66ms (4.4x faster than baseline 2.9ms)
+- Sign: 3.4ms (5.8x faster than baseline 19.8ms)
+- Verify: 0.54ms (5.4x faster than baseline 2.9ms)
 - Allocations: ~110 per Sign
 
 ### Optimizations Applied (in commit order)
@@ -127,6 +127,16 @@ Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% sm
 - Benchmarked unroll factors: no unroll (184ns), 2-pair (179ns), **4-pair (175ns)**.
 - Results: BatchInvMontTree 212ns → 175ns (~17%), Sign 4.35ms → 4.0ms (~8%).
 
+#### 15. MDS 3-Accumulator ILP with Full Unrolling
+- Previous: 5-unrolled loop with serial MADD chain accumulating into single `acc`.
+- Compiler generated: `MUL; MADD; MADD; MADD; MADD; ADD acc` - each MADD depends on previous.
+- New approach: 3 independent accumulator chains (s01, s23, s4) with full unrolling of all 35 elements.
+- Each group of 5: s01 += products[0,1], s23 += products[2,3], s4 += products[4].
+- Final merge: `state[i] = MontReduce(s01 + s23 + s4)`.
+- Key insight: 3 accumulators (not 5) hits the sweet spot - enough parallelism without register pressure.
+- The 2+2+1 grouping matches ARM64's dual-issue capability for MUL/MADD.
+- Results: MDS 294ns → 279ns (~5%), Sign 4.0ms → 3.4ms (~18%), Verify 650μs → 540μs (~17%).
+
 ### Optimizations That Did NOT Work
 
 #### 1. Solinas/Proth Reduction
@@ -136,6 +146,9 @@ Montgomery multiplication empirically outperformed it on ARM64.
 #### 2. ILP with 5 Parallel Accumulators in MDS
 Theory: Break dependency chain by using 5 independent accumulators.
 Reality: ARM64 out-of-order execution already handles this. No improvement.
+**Update:** 3 accumulators with full unrolling DOES work (~18% Sign improvement).
+The key differences: (1) 3 accumulators vs 5 reduces register pressure, (2) full
+unrolling eliminates loop overhead, (3) 2+2+1 grouping matches dual-issue better.
 
 #### 3. Precomputed Inv2*InvZeta Table for InvNTT
 Added 1KB lookup table to combine two multiplications into one.
@@ -293,24 +306,24 @@ are complex algorithms where splitting would hurt performance.
 
 ### Profiling Breakdown (Final)
 
-Sign operation (~4.1ms):
+Sign operation (~3.4ms):
 - poseidonRound: 90% (main hotspot)
-  - BatchInvMontTree: 40% (S-box inversion, tree-based)
-  - MDS matrix: ~50% (5-unrolled multiply-accumulate)
+  - BatchInvMontTree: ~45% (S-box inversion, tree-based)
+  - MDS matrix: ~45% (3-accumulator ILP, fully unrolled)
   - Round constants: ~3%
 - NTT: 3%, InvNTT: 2%
 - SHA3/SHAKE: ~2%
 
 All hot paths already use branchless operations:
 - Add/Sub: compiler generates CSEL (conditional select)
-- MDS: 5-way unrolled, efficient MUL/MADD chains
+- MDS: 3-accumulator ILP with parallel MUL chains
 - NTT: uses Add/Sub which compile to CSEL
 - reduce: branchless sign-bit mask
 
 ### What Would Help Further
 
-At this point, pure Go optimizations are exhausted. The 4x speedup from baseline
-(19.8ms → 5.0ms) captures most available gains. Further improvement requires:
+At this point, pure Go optimizations are largely exhausted. The 5.8x speedup from baseline
+(19.8ms → 3.4ms) captures most available gains. Further improvement requires:
 
 1. **Hand-written SIMD Assembly** - NEON could parallelize 4 MulMont operations
    simultaneously, but Go's calling conventions make this difficult without CGO.
@@ -323,7 +336,7 @@ The codebase is now well-optimized:
 - Montgomery multiplication with lazy reduction
 - Tree-based batch inversion with O(log n) depth
 - Lazy matrix-vector multiply with fused accumulation
-- MDS matrix with 5-way unrolled MADD chains
+- MDS matrix with 3-accumulator ILP and full unrolling
 - Zero-allocation Poseidon with reusable scratch buffers
 
 ### Architecture Notes
