@@ -114,6 +114,24 @@ func (p *Poly) Norm() uint32 {
 	return n
 }
 
+// BuggyNorm computes the norm with the same bug as the original Python spec.
+// The bug: negative coefficients (values > Q/2) are not taken as absolute values,
+// effectively ignoring them in the max computation.
+// This is needed for compatibility with the Rust prover that uses buggy Python witness.
+func (p *Poly) BuggyNorm() uint32 {
+	var n uint32
+	half := uint32((field.Q - 1) / 2)
+	for _, c := range p {
+		// Only consider positive values (c <= half).
+		// Negative values (c > half) are ignored due to the Python bug
+		// where max(c, n) with negative c doesn't update n.
+		if c <= half && c > n {
+			n = c
+		}
+	}
+	return n
+}
+
 // Decompose decomposes each coefficient using field.Decompose.
 func (p *Poly) Decompose() (p0 Poly, p1 Poly) {
 	for i := 0; i < field.N; i++ {

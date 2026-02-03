@@ -227,16 +227,29 @@ func Sign(sk, msg []byte) []byte {
 			r0Decomposed[i], _ = r0[i].Decompose()
 		}
 
-		// Check norm of r0
+		// Check norm of r0 (both fixed and buggy for compatibility)
 		var maxR0Norm uint32
+		var maxR0BuggyNorm uint32
 		for i := 0; i < field.K; i++ {
 			var p poly.Poly = r0Decomposed[i]
 			n := p.Norm()
+			bn := p.BuggyNorm()
 			if n > maxR0Norm {
 				maxR0Norm = n
 			}
+			if bn > maxR0BuggyNorm {
+				maxR0BuggyNorm = bn
+			}
 		}
-		if maxR0Norm >= field.Gamma2-field.Beta {
+		// Skip if buggy norm passes but fixed norm fails.
+		// This ensures compatibility with Rust prover (uses buggy Python witness)
+		// while also ensuring signatures verify with fixed Go Verify().
+		threshold := uint32(field.Gamma2 - field.Beta)
+		if maxR0BuggyNorm < threshold && maxR0Norm >= threshold {
+			// Would pass buggy Python but fail fixed Go - skip this yNonce
+			continue
+		}
+		if maxR0Norm >= threshold {
 			continue
 		}
 
@@ -256,15 +269,25 @@ func Sign(sk, msg []byte) []byte {
 			z[i].FromMont()
 		}
 
-		// Check norm of z
+		// Check norm of z (both fixed and buggy for compatibility)
 		var maxZNorm uint32
+		var maxZBuggyNorm uint32
 		for i := 0; i < field.L; i++ {
 			n := z[i].Norm()
+			bn := z[i].BuggyNorm()
 			if n > maxZNorm {
 				maxZNorm = n
 			}
+			if bn > maxZBuggyNorm {
+				maxZBuggyNorm = bn
+			}
 		}
-		if maxZNorm >= field.Gamma1-field.Beta {
+		zThreshold := uint32(field.Gamma1 - field.Beta)
+		if maxZBuggyNorm < zThreshold && maxZNorm >= zThreshold {
+			// Would pass buggy Python but fail fixed Go - skip this yNonce
+			continue
+		}
+		if maxZNorm >= zThreshold {
 			continue
 		}
 
