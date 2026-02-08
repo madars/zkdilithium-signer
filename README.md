@@ -65,8 +65,8 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.078 ms | 3.1 ms | 40x | 1.3x |
-| Sign | 19.8 ms | 3.25 ms | 461 ms | 142x | 6.1x |
+| Gen | 0.10 ms | 0.080 ms | 3.1 ms | 39x | 1.3x |
+| Sign | 19.8 ms | 3.18 ms | 461 ms | 145x | 6.2x |
 | Verify | 2.9 ms | 0.55 ms | 71.5 ms | 130x | 5.3x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.

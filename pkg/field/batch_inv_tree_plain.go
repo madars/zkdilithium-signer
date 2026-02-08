@@ -2,7 +2,7 @@ package field
 
 // batchInvTreeNoZeroILP4_35PlainLazyProd is a plain-domain batch inversion
 // specialized for n=35. It keeps intermediates lazy and writes strict outputs.
-func batchInvTreeNoZeroILP4_35PlainLazyProd(xs []uint32, scratch []uint32) {
+func batchInvTreeNoZeroILP4_35PlainLazyProd(xs []uint32, scratch []uint32) bool {
 	x := (*[PosT]uint32)(xs)    // 35
 	s := (*[38]uint32)(scratch) // 18+9+5+3+2+1
 
@@ -37,6 +37,9 @@ func batchInvTreeNoZeroILP4_35PlainLazyProd(xs []uint32, scratch []uint32) {
 
 	// ============ INVERT ROOT ============
 	rootProd := mulPlainLazy(s[35], s[36])
+	if rootProd == 0 {
+		return false
+	}
 	s[37] = invPlainLazy(rootProd)
 
 	// ============ DOWN-SWEEP ============
@@ -234,6 +237,7 @@ func batchInvTreeNoZeroILP4_35PlainLazyProd(xs []uint32, scratch []uint32) {
 	x[32], x[33] = reduce2(out0, out1)
 
 	x[34] = reduce(s[17])
+	return true
 }
 
 // batchInvTreeWithZeroILP4_35PlainLazyProd handles zeros via the standard
@@ -252,7 +256,7 @@ func batchInvTreeWithZeroILP4_35PlainLazyProd(xs []uint32, scratch []uint32) {
 		}
 	}
 
-	batchInvTreeNoZeroILP4_35PlainLazyProd(work, treeScratch)
+	_ = batchInvTreeNoZeroILP4_35PlainLazyProd(work, treeScratch)
 
 	for i := 0; i < PosT; i++ {
 		if xs[i] != 0 {
@@ -276,17 +280,8 @@ func BatchInvTreeCondPlain(xs []uint32, scratch []uint32) {
 	}
 
 	if n == PosT {
-		hasZero := false
-		for i := 0; i < n; i++ {
-			if xs[i] == 0 {
-				hasZero = true
-				break
-			}
-		}
-		if hasZero {
+		if !batchInvTreeNoZeroILP4_35PlainLazyProd(xs, scratch) {
 			batchInvTreeWithZeroILP4_35PlainLazyProd(xs, scratch)
-		} else {
-			batchInvTreeNoZeroILP4_35PlainLazyProd(xs, scratch)
 		}
 		return
 	}

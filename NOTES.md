@@ -181,10 +181,14 @@ Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% sm
 - Reworked strict pair reduce path:
   - `mulPlainStrict2` simplified to inlineable form (Go inline cost now `79`, previously non-inlineable).
   - Hot leaf writeback in the fixed-size kernel now does `mulPlainLazy2 + reduce2` directly.
+- Removed the `n=35` zero pre-scan in the common path:
+  - fixed-size no-zero kernel now returns `false` when `rootProd == 0` (zero present),
+    and dispatcher reruns the zero-safe sanitized path only in that rare case.
+  - this preserves correctness while eliminating 35-element zero scans from the hot path.
 - End-to-end (same environment, `go test ./pkg/dilithium -run '^$' -bench 'Benchmark(Gen|Sign|Verify)$' -benchtime=3s -count=3`):
-  - `Gen`: ~`72.0us`
-  - `Sign`: ~`3.05ms` (improved vs prior ~`3.12-3.26ms` in this optimization cycle)
-  - `Verify`: ~`0.50ms`
+  - `Gen`: ~`71.9-73.5us`
+  - `Sign`: ~`2.96ms` (improved vs prior ~`3.12-3.26ms` in this optimization cycle)
+  - `Verify`: ~`0.48-0.49ms`
 
 #### Microbench Snapshot (guiding cost model, 2026-02)
 `go test ./pkg/field -run '^$' -bench 'BenchmarkPrimitive(...)' -benchtime=2s -count=3`
