@@ -20,14 +20,14 @@ func TestGrainFirst10Fes(t *testing.T) {
 	}
 }
 
-// Test round constants first 16 match Python (after converting from Montgomery)
+// Test round constants first 16 match Python.
 func TestPosRCsFirst16(t *testing.T) {
 	expected := []uint32{
 		662000, 7104925, 2304656, 2330809, 452951, 1722141, 5334010, 7087604,
 		5110463, 6023804, 3061965, 6087945, 3740272, 284272, 4421217, 559188,
 	}
 	for i, want := range expected {
-		got := field.FromMont(PosRCsMont[i])
+		got := PosRCs[i]
 		if got != want {
 			t.Errorf("PosRCs[%d] = %d, want %d", i, got, want)
 		}
@@ -38,13 +38,11 @@ func TestPosRCsFirst16(t *testing.T) {
 func TestPoseidonPerm(t *testing.T) {
 	state := make([]uint32, field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		// Convert input to Montgomery form (PoseidonPerm expects Montgomery form)
-		state[i] = field.ToMont(uint32(i))
+		state[i] = uint32(i)
 	}
 
 	PoseidonPerm(state)
 
-	// Convert output from Montgomery form for comparison
 	expected := []uint32{
 		6525793, 2817790, 5538989, 1140645, 1838881, 2536727, 6768730, 4709337,
 		6955613, 2401101, 1387526, 5346661, 1137806, 7270459, 1552970, 4071298,
@@ -53,7 +51,7 @@ func TestPoseidonPerm(t *testing.T) {
 		7322777, 3396423, 2354672,
 	}
 	for i, want := range expected {
-		got := field.FromMont(state[i])
+		got := state[i]
 		if got != want {
 			t.Errorf("PoseidonPerm[%d] = %d, want %d", i, got, want)
 		}
@@ -127,7 +125,7 @@ func BenchmarkMDS(b *testing.B) {
 	state := make([]uint32, field.PosT)
 	scratch := make([]uint32, field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.ToMont(uint32(i + 1))
+		state[i] = uint32(i + 1)
 	}
 
 	b.ResetTimer()
@@ -136,7 +134,7 @@ func BenchmarkMDS(b *testing.B) {
 		scratchArr := (*[field.PosT]uint32)(scratch)
 		for row := 0; row < field.PosT; row++ {
 			var acc uint64
-			invSlice := (*[field.PosT]uint32)(PosInvMont[row : row+field.PosT])
+			invSlice := (*[field.PosT]uint32)(PosInv[row : row+field.PosT])
 			for j := 0; j < 35; j += 5 {
 				t0 := uint64(invSlice[j]) * uint64(scratchArr[j])
 				t1 := uint64(invSlice[j+1]) * uint64(scratchArr[j+1])
@@ -145,7 +143,7 @@ func BenchmarkMDS(b *testing.B) {
 				t4 := uint64(invSlice[j+4]) * uint64(scratchArr[j+4])
 				acc += t0 + t1 + t2 + t3 + t4
 			}
-			state[row] = field.MontReduce(acc)
+			state[row] = uint32(acc % field.Q)
 		}
 	}
 }
@@ -155,7 +153,7 @@ func BenchmarkMDS7Unroll(b *testing.B) {
 	state := make([]uint32, field.PosT)
 	scratch := make([]uint32, field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.ToMont(uint32(i + 1))
+		state[i] = uint32(i + 1)
 	}
 
 	b.ResetTimer()
@@ -164,7 +162,7 @@ func BenchmarkMDS7Unroll(b *testing.B) {
 		scratchArr := (*[field.PosT]uint32)(scratch)
 		for row := 0; row < field.PosT; row++ {
 			var acc uint64
-			invSlice := (*[field.PosT]uint32)(PosInvMont[row : row+field.PosT])
+			invSlice := (*[field.PosT]uint32)(PosInv[row : row+field.PosT])
 			for j := 0; j < 35; j += 7 {
 				t0 := uint64(invSlice[j]) * uint64(scratchArr[j])
 				t1 := uint64(invSlice[j+1]) * uint64(scratchArr[j+1])
@@ -175,7 +173,7 @@ func BenchmarkMDS7Unroll(b *testing.B) {
 				t6 := uint64(invSlice[j+6]) * uint64(scratchArr[j+6])
 				acc += t0 + t1 + t2 + t3 + t4 + t5 + t6
 			}
-			state[row] = field.MontReduce(acc)
+			state[row] = uint32(acc % field.Q)
 		}
 	}
 }
@@ -185,7 +183,7 @@ func BenchmarkMDS2Row(b *testing.B) {
 	state := make([]uint32, field.PosT)
 	scratch := make([]uint32, field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.ToMont(uint32(i + 1))
+		state[i] = uint32(i + 1)
 	}
 
 	b.ResetTimer()
@@ -195,8 +193,8 @@ func BenchmarkMDS2Row(b *testing.B) {
 		// Process 2 rows at a time
 		for row := 0; row < 34; row += 2 {
 			var acc0, acc1 uint64
-			invSlice0 := (*[field.PosT]uint32)(PosInvMont[row : row+field.PosT])
-			invSlice1 := (*[field.PosT]uint32)(PosInvMont[row+1 : row+1+field.PosT])
+			invSlice0 := (*[field.PosT]uint32)(PosInv[row : row+field.PosT])
+			invSlice1 := (*[field.PosT]uint32)(PosInv[row+1 : row+1+field.PosT])
 			for j := 0; j < 35; j += 5 {
 				s0 := uint64(scratchArr[j])
 				s1 := uint64(scratchArr[j+1])
@@ -210,12 +208,12 @@ func BenchmarkMDS2Row(b *testing.B) {
 					uint64(invSlice1[j+2])*s2 + uint64(invSlice1[j+3])*s3 +
 					uint64(invSlice1[j+4])*s4
 			}
-			state[row] = field.MontReduce(acc0)
-			state[row+1] = field.MontReduce(acc1)
+			state[row] = uint32(acc0 % field.Q)
+			state[row+1] = uint32(acc1 % field.Q)
 		}
 		// Handle last row (35 is odd)
 		var acc uint64
-		invSlice := (*[field.PosT]uint32)(PosInvMont[34 : 34+field.PosT])
+		invSlice := (*[field.PosT]uint32)(PosInv[34 : 34+field.PosT])
 		for j := 0; j < 35; j += 5 {
 			t0 := uint64(invSlice[j]) * uint64(scratchArr[j])
 			t1 := uint64(invSlice[j+1]) * uint64(scratchArr[j+1])
@@ -224,7 +222,7 @@ func BenchmarkMDS2Row(b *testing.B) {
 			t4 := uint64(invSlice[j+4]) * uint64(scratchArr[j+4])
 			acc += t0 + t1 + t2 + t3 + t4
 		}
-		state[34] = field.MontReduce(acc)
+		state[34] = uint32(acc % field.Q)
 	}
 }
 
@@ -233,7 +231,7 @@ func BenchmarkPoseidonRound(b *testing.B) {
 	state := make([]uint32, field.PosT)
 	scratch := make([]uint32, 3*field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.ToMont(uint32(i + 1))
+		state[i] = uint32(i + 1)
 	}
 
 	b.ResetTimer()
@@ -246,7 +244,7 @@ func BenchmarkPoseidonRound(b *testing.B) {
 func BenchmarkPoseidonPerm(b *testing.B) {
 	state := make([]uint32, field.PosT)
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.ToMont(uint32(i + 1))
+		state[i] = uint32(i + 1)
 	}
 	orig := make([]uint32, field.PosT)
 	copy(orig, state)

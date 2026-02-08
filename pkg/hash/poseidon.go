@@ -2,50 +2,50 @@ package hash
 
 import "zkdilithium-signer/pkg/field"
 
-// PosRCsMont contains the Poseidon round constants in Montgomery form.
-var PosRCsMont [field.PosT * field.PosRF]uint32
+// PosRCs contains the Poseidon round constants in plain field form.
+var PosRCs [field.PosT * field.PosRF]uint32
 
-// PosInvMont contains precomputed inverses for MDS in Montgomery form.
-// PosInvMont[i] = (1/(i+1))_M for i in [0, 2*PosT-2]
-var PosInvMont [2*field.PosT - 1]uint32
+// PosInv contains precomputed inverses for MDS in plain field form.
+// PosInv[i] = 1/(i+1) for i in [0, 2*PosT-2].
+var PosInv [2*field.PosT - 1]uint32
 
 func init() {
-	// Generate round constants using Grain LFSR, convert to Montgomery form
+	// Generate round constants using Grain LFSR in plain field form.
 	g := NewGrain()
 	for i := 0; i < field.PosT*field.PosRF; i++ {
-		PosRCsMont[i] = field.ToMont(g.ReadFe())
+		PosRCs[i] = g.ReadFe()
 	}
 
-	// Generate MDS inverses in Montgomery form
+	// Generate MDS inverses in plain field form.
 	for i := 0; i < 2*field.PosT-1; i++ {
-		PosInvMont[i] = field.ToMont(field.Inv(uint32(i + 1)))
+		PosInv[i] = field.Inv(uint32(i + 1))
 	}
 }
 
 // poseidonRound applies one round of the Poseidon permutation.
-// State is in Montgomery form throughout.
+// State is in plain field form throughout.
 // scratch is a reusable buffer of length 3*PosT for zero-allocation operation.
 func poseidonRound(state, scratch []uint32, r int) {
-	// Add round constants (both in Montgomery form, addition preserves form)
+	// Add round constants.
 	for i := 0; i < field.PosT; i++ {
-		state[i] = field.Add(state[i], PosRCsMont[field.PosT*r+i])
+		state[i] = field.Add(state[i], PosRCs[field.PosT*r+i])
 	}
 
-	// S-box: x -> x^(-1) in Montgomery form
-	// BatchInvMontTree uses tree-based algorithm for O(log n) depth
+	// S-box: x -> x^(-1) in plain form.
+	// BatchInvTreeCondPlain uses tree-based algorithm for O(log n) depth.
 	// enabling better instruction-level parallelism
 	// Note: state elements could be zero after adding round constants
-	field.BatchInvMontTreeCond(state, scratch)
+	field.BatchInvTreeCondPlain(state, scratch)
 
 	// MDS matrix multiplication: M_ij = 1/(i+j+1)
-	// Lazy reduction: accumulate products in uint64, reduce once per row
-	// Use scratch as 'old' buffer (reuse after BatchInvMont is done with it)
+	// Accumulate products in uint64 and reduce once per row.
+	// Use scratch as 'old' buffer (reuse after batch inversion is done with it).
 	// 3 independent accumulator chains for ILP (s01, s23, s4)
 	copy(scratch, state)
 	scratchArr := (*[field.PosT]uint32)(scratch)
 	for i := 0; i < field.PosT; i++ {
 		var s01, s23, s4 uint64
-		inv := (*[field.PosT]uint32)(PosInvMont[i : i+field.PosT])
+		inv := (*[field.PosT]uint32)(PosInv[i : i+field.PosT])
 
 		// Fully unroll 35 elements as 7 groups of 5
 		// Group 0: j=0..4
@@ -83,12 +83,12 @@ func poseidonRound(state, scratch []uint32, r int) {
 		s23 += uint64(inv[32])*uint64(scratchArr[32]) + uint64(inv[33])*uint64(scratchArr[33])
 		s4 += uint64(inv[34]) * uint64(scratchArr[34])
 
-		state[i] = field.MontReduce(s01 + s23 + s4)
+		state[i] = uint32((s01 + s23 + s4) % field.Q)
 	}
 }
 
 // PoseidonPerm applies the full Poseidon permutation to state in place.
-// State must be in Montgomery form.
+// State must be in plain field form.
 func PoseidonPerm(state []uint32) {
 	// Tree-based inversion needs n + n/2 + n/4 + ... ≈ 2n scratch
 	// For n=35: 35+18+9+5+3+2+1 = 73, so 3*n is safe
@@ -99,9 +99,9 @@ func PoseidonPerm(state []uint32) {
 }
 
 // Poseidon is a sponge construction using the Poseidon permutation.
-// Internal state is kept in Montgomery form.
+// Internal state is kept in plain field form.
 type Poseidon struct {
-	s         [field.PosT]uint32     // Montgomery form
+	s         [field.PosT]uint32     // Plain field form
 	scratch   [3 * field.PosT]uint32 // Reusable scratch buffer for tree-based inversion
 	absorbing bool
 	i         int
@@ -126,15 +126,13 @@ func (p *Poseidon) perm() {
 }
 
 // Write absorbs field elements into the sponge.
-// Input is in normal form, converted to Montgomery form internally.
+// Input is in plain field form.
 func (p *Poseidon) Write(fes []uint32) {
 	if !p.absorbing {
 		panic("cannot write after reading")
 	}
 	for _, fe := range fes {
-		// Convert input to Montgomery form and add to state
-		feM := field.ToMont(fe)
-		p.s[p.i] = field.Add(p.s[p.i], feM)
+		p.s[p.i] = field.Add(p.s[p.i], fe)
 		p.i++
 		if p.i == field.PosRate {
 			p.perm()
@@ -155,7 +153,7 @@ func (p *Poseidon) Permute() {
 }
 
 // Read squeezes n field elements from the sponge.
-// Output is converted from Montgomery form to normal form.
+// Output is in plain field form.
 func (p *Poseidon) Read(n int) []uint32 {
 	if p.absorbing {
 		p.absorbing = false
@@ -171,9 +169,8 @@ func (p *Poseidon) Read(n int) []uint32 {
 		if toRead > field.PosRate-p.i {
 			toRead = field.PosRate - p.i
 		}
-		// Convert from Montgomery form for output
 		for j := 0; j < toRead; j++ {
-			ret = append(ret, field.FromMont(p.s[p.i+j]))
+			ret = append(ret, p.s[p.i+j])
 		}
 		n -= toRead
 		p.i += toRead
@@ -186,17 +183,16 @@ func (p *Poseidon) Read(n int) []uint32 {
 }
 
 // ReadNoMod reads n elements from state without modifying position.
-// Used in sampleInBall. Returns values in Montgomery form.
+// Used in sampleInBall. Returns plain field values.
 func (p *Poseidon) ReadNoMod(n int) []uint32 {
 	if n > field.PosRate {
 		panic("ReadNoMod: n > PosRate")
 	}
-	// Return Montgomery form values (sampleInBall expects this now)
 	return p.s[:n]
 }
 
 // State returns a pointer to the internal state (for sampleInBall).
-// State is in Montgomery form.
+// State is in plain field form.
 func (p *Poseidon) State() *[field.PosT]uint32 {
 	return &p.s
 }

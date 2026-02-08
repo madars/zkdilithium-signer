@@ -343,14 +343,25 @@ func mulPlainStrict(a, b uint32) uint32 {
 	return reduce(mulPlainLazy(a, b))
 }
 
+// reduce2 canonicalizes two values in [0, 2Q) to [0, Q).
+func reduce2(a0, a1 uint32) (r0, r1 uint32) {
+	b0 := a0 - Q
+	b1 := a1 - Q
+	m0 := uint32(int32(b0) >> 31)
+	m1 := uint32(int32(b1) >> 31)
+	return b0 + (Q & m0), b1 + (Q & m1)
+}
+
 // mulPlainStrict2 computes two independent strict products in [0, Q).
 func mulPlainStrict2(a0, b0, a1, b1 uint32) (r0, r1 uint32) {
 	l0, l1 := mulPlainLazy2(a0, b0, a1, b1)
-	b0r := l0 - Q
-	b1r := l1 - Q
-	m0 := uint32(int32(b0r) >> 31)
-	m1 := uint32(int32(b1r) >> 31)
-	return b0r + (Q & m0), b1r + (Q & m1)
+	if l0 >= Q {
+		l0 -= Q
+	}
+	if l1 >= Q {
+		l1 -= Q
+	}
+	return l0, l1
 }
 
 // invPlainLazy mirrors the optimized addition chain of InvMont using plain-domain

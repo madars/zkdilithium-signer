@@ -170,8 +170,46 @@ Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% sm
   (`STEXT size 4064 -> 3984`, locals `0x48 -> 0x38`).
 - Benchmarks (`-benchtime=2s`, same environment):
   - Before (fixed-size with copy): `Sign ~3.29-3.31ms`, `Verify ~542-546us`
-  - After (copy-elided): `Sign ~3.20-3.25ms`, `Verify ~531-545us`
-  - Additional gain: **~2-3% Sign** on top of #17.
+- After (copy-elided): `Sign ~3.20-3.25ms`, `Verify ~531-545us`
+- Additional gain: **~2-3% Sign** on top of #17.
+
+#### 19. Plain-Domain Poseidon S-box Path + Inlineable Strict Pair Reduce (2026-02)
+- Switched Poseidon hash internals to plain-domain constants/inverses and plain batch inversion path.
+- Added fixed-size plain tree kernel for `n=35`:
+  - `batchInvTreeNoZeroILP4_35PlainLazyProd` in `pkg/field/batch_inv_tree_plain.go`
+  - zero-safe fallback now uses the same specialized kernel on sanitized inputs (zero -> one), then selective writeback.
+- Reworked strict pair reduce path:
+  - `mulPlainStrict2` simplified to inlineable form (Go inline cost now `79`, previously non-inlineable).
+  - Hot leaf writeback in the fixed-size kernel now does `mulPlainLazy2 + reduce2` directly.
+- End-to-end (same environment, `go test ./pkg/dilithium -run '^$' -bench 'Benchmark(Gen|Sign|Verify)$' -benchtime=3s -count=3`):
+  - `Gen`: ~`72.0us`
+  - `Sign`: ~`3.05ms` (improved vs prior ~`3.12-3.26ms` in this optimization cycle)
+  - `Verify`: ~`0.50ms`
+
+#### Microbench Snapshot (guiding cost model, 2026-02)
+`go test ./pkg/field -run '^$' -bench 'BenchmarkPrimitive(...)' -benchtime=2s -count=3`
+
+| Primitive | Median ns/op | Notes |
+|---|---:|---|
+| `MulMont` (inputs) | ~`0.84` | strict Montgomery |
+| `mulMontLazy` (inputs) | ~`0.78` | lazy Montgomery |
+| `mulPlainLazy` (inputs) | ~`0.74` | lazy Barrett (`bits.Mul64`) |
+| `mulPlainLazy2` (inputs) | ~`1.07` | two-lane interleaved pair |
+| `%Q` multiply (`MulMod`) | ~`0.87` | strict `%Q` path |
+| `reduceMod46` | ~`0.78` | `%Q` on 46-bit input |
+| `reduceBarrett64` | ~`0.81` | strict Barrett64 |
+| `reduceSolinas46` | ~`3.13` | current fold implementation slower |
+| `InvMont` (lazy input) | ~`42.7` | Montgomery chain |
+| `invPlainLazy` (input) | ~`42.2` | plain lazy chain |
+
+#### Corrected Folding Constant (for Gemini "parallel folding" track)
+- For `x = hi*2^64 + lo`, correct fold modulo `Q=7340033` is:
+  - `x mod Q = (lo + hi*(2^64 mod Q)) mod Q`
+  - `2^64 mod Q = 3338324`
+- The previously suggested constant `28657` is incorrect for this modulus.
+- Quick counterexample (found by script): `hi=747652826, lo=9026824974222547424`
+  - true `x mod Q = 5516091`
+  - fold with `28657` gives `5231930` (wrong).
 
 ### Optimizations That Did NOT Work
 
@@ -257,6 +295,17 @@ The original single-row with 7-way unrolling is optimal.
 Assembly inspection shows Q = 7340033 is reloaded each iteration (2 instructions
 per iteration × 35 iterations × 21 rounds = 1470 extra instructions per perm).
 Estimated impact: ~0.1% of Sign time. Not worth hand-writing assembly.
+
+#### 22. Always-On Zero-Safe `n=35` Entry (No Dispatch Scan)
+Tried removing the `hasZero` dispatch scan by always sanitizing/copying (`zero -> one`)
+and writing back non-zero entries for Poseidon-width batch inversion.
+Result: regression in end-to-end Sign/Verify. Extra per-round copy/writeback overhead
+was larger than the dispatch-scan overhead when zeros are rare.
+
+#### 23. MDS 2-Row Schedule in `poseidonRound`
+Even though standalone `BenchmarkMDS2Row` looked competitive, replacing the production
+3-accumulator row kernel with a 2-row schedule regressed `PoseidonRound`/`PoseidonPerm`
+and end-to-end Sign. Reverted.
 
 #### 17. Manual "Branchless" Arithmetic (Add/Sub/MontReduce)
 Tried replacing `if` statements with mask-based branchless code:

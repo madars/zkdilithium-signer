@@ -65,9 +65,9 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.076 ms | 3.1 ms | 41x | 1.3x |
-| Sign | 19.8 ms | 3.23 ms | 461 ms | 143x | 6.1x |
-| Verify | 2.9 ms | 0.52 ms | 71.5 ms | 138x | 5.6x |
+| Gen | 0.10 ms | 0.078 ms | 3.1 ms | 40x | 1.3x |
+| Sign | 19.8 ms | 3.25 ms | 461 ms | 142x | 6.1x |
+| Verify | 2.9 ms | 0.55 ms | 71.5 ms | 130x | 5.3x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
 zkDilithium is ~250x slower, partly due to the STARK-friendly Poseidon hash, and partly because
@@ -83,11 +83,11 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
    exploiting Q-2 = 0b110\_11111111111111111111. Reduces operations from ~43
    to 30 per Inv() call.
 
-3. **Montgomery multiplication** - All NTT and Poseidon operations stay in
-   Montgomery form. Convert to/from Montgomery only at boundaries.
+3. **Domain-specialized multiplication** - NTT kernels remain Montgomery-optimized,
+   while Poseidon uses a plain-domain lazy-Barrett path to avoid extra domain conversions.
 
-4. **Lazy Montgomery reduction** - Skip conditional subtraction in multiplication
-   chains, reducing operations by ~5%.
+4. **Lazy reduction in hot chains** - Skip strict normalization inside multiplication
+   chains (reduce only at required boundaries), lowering per-op overhead.
 
 5. **Tree-based batch inversion** - Replaces sequential O(n) prefix products with
    O(log n) depth binary tree. Each layer's operations are independent, enabling
@@ -129,13 +129,12 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 15. **InvNTT loop-invariant hoist** - Hoists `inv2zMont := MulMont(Inv2Mont, z)` out of the
     inner butterfly loop in `InvNTT`, removing redundant work per coefficient.
 
-16. **Fixed-size Poseidon batch inversion path (n=35)** - Adds specialized no-zero tree inversion
-    for Poseidon state width and removes an internal copy in that path. Improves Sign/Verify by
-    another ~2-3% on top of previous tree-batch inversion improvements.
+16. **Fixed-size Poseidon batch inversion path (n=35)** - Adds specialized tree inversion
+    for Poseidon state width and removes internal dynamic layer setup/copy overhead where possible.
 
-17. **BCE-free fixed-index `n=35` batch inversion** - Rewrites the specialized Poseidon-width
-    path as constant-index code (no loop-indexed slice accesses), eliminating nearly all in-function
-    bounds-check branches in assembly (only upfront slice conversion checks remain).
+17. **Plain lazy pair-reduce tuning** - In the fixed-size plain batch inversion kernel,
+    strict leaf writeback now uses interleaved `mulPlainLazy2 + reduce2`, and the strict pair helper
+    is kept inlineable to avoid call overhead in hot paths.
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 
