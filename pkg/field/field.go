@@ -35,9 +35,9 @@ const (
 	Beta   = Tau * Eta // 80
 
 	// Poseidon parameters
-	PosT       = 35
-	PosRate    = 24
-	PosRF      = 21
+	PosT        = 35
+	PosRate     = 24
+	PosRF       = 21
 	PosCycleLen = 8
 
 	// Signature encoding sizes
@@ -236,6 +236,12 @@ const (
 	// montgomeryQInvNeg = -Q^(-1) mod 2^32
 	// Satisfies: Q * montgomeryQInvNeg ≡ -1 (mod 2^32)
 	montgomeryQInvNeg uint32 = 7340031
+
+	// r2ModQ = 2^64 mod Q, used for Montgomery conversions.
+	r2ModQ uint32 = 3338324
+
+	// barrettMu64Floor = floor(2^64 / Q).
+	barrettMu64Floor uint64 = ^uint64(0) / Q
 )
 
 // MulMont computes Montgomery reduction of a*b.
@@ -309,12 +315,90 @@ func MontReduce(t uint64) uint32 {
 	return uint32(u)
 }
 
+// reduceBarrett64Lazy computes a lazy representative of p mod Q.
+// For p < 4Q^2, output is in [0, 2Q).
+func reduceBarrett64Lazy(p uint64) uint32 {
+	q, _ := bits.Mul64(p, barrettMu64Floor)
+	return uint32(p - q*uint64(Q))
+}
+
+// mulPlainLazy computes a*b mod Q in lazy form [0, 2Q).
+// Requires a,b < 2Q.
+func mulPlainLazy(a, b uint32) uint32 {
+	return reduceBarrett64Lazy(uint64(a) * uint64(b))
+}
+
+// mulPlainLazy2 computes two independent lazy products.
+// It is structured to expose ILP across the two reduction chains.
+func mulPlainLazy2(a0, b0, a1, b1 uint32) (r0, r1 uint32) {
+	p0 := uint64(a0) * uint64(b0)
+	p1 := uint64(a1) * uint64(b1)
+	q0, _ := bits.Mul64(p0, barrettMu64Floor)
+	q1, _ := bits.Mul64(p1, barrettMu64Floor)
+	return uint32(p0 - q0*uint64(Q)), uint32(p1 - q1*uint64(Q))
+}
+
+// mulPlainStrict computes canonical a*b mod Q in [0, Q).
+func mulPlainStrict(a, b uint32) uint32 {
+	return reduce(mulPlainLazy(a, b))
+}
+
+// mulPlainStrict2 computes two independent strict products in [0, Q).
+func mulPlainStrict2(a0, b0, a1, b1 uint32) (r0, r1 uint32) {
+	l0, l1 := mulPlainLazy2(a0, b0, a1, b1)
+	b0r := l0 - Q
+	b1r := l1 - Q
+	m0 := uint32(int32(b0r) >> 31)
+	m1 := uint32(int32(b1r) >> 31)
+	return b0r + (Q & m0), b1r + (Q & m1)
+}
+
+// invPlainLazy mirrors the optimized addition chain of InvMont using plain-domain
+// lazy multiplication internally, with a single final canonical reduction.
+func invPlainLazy(a uint32) uint32 {
+	if a == 0 {
+		return 0
+	}
+
+	_10 := mulPlainLazy(a, a)
+	_11 := mulPlainLazy(a, _10)
+	_1100 := mulPlainLazy(_11, _11)
+	_1100 = mulPlainLazy(_1100, _1100)
+	_1111 := mulPlainLazy(_11, _1100)
+	_1100000 := mulPlainLazy(_1100, _1100)
+	_1100000 = mulPlainLazy(_1100000, _1100000)
+	_1100000 = mulPlainLazy(_1100000, _1100000)
+	_1101111 := mulPlainLazy(_1111, _1100000)
+
+	i23 := mulPlainLazy(_1101111, _1101111)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, _1111)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, _1111)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+	i23 = mulPlainLazy(i23, i23)
+
+	res := mulPlainLazy(_1111, i23)
+	res = mulPlainLazy(res, res)
+	res = mulPlainLazy(res, res)
+	res = mulPlainLazy(res, res)
+	res = mulPlainLazy(res, res)
+	res = mulPlainLazy(res, _1111)
+
+	return reduce(res)
+}
+
 // ToMont converts a to Montgomery form: a_M = a * R mod Q
 func ToMont(a uint32) uint32 {
 	// a * R mod Q = a * 2^32 mod Q
 	// We compute this as MulMont(a, R^2 mod Q)
-	// R^2 mod Q = 2^64 mod 7340033 = 3338324
-	const r2ModQ = 3338324
 	return MulMont(a, r2ModQ)
 }
 
@@ -393,8 +477,8 @@ func InvMont(aM uint32) uint32 {
 //   - Invariant: prods[i] < 2Q
 //   - Base: prods[0] = xs[0] < Q < 2Q ✓
 //   - Induction: If prods[i-1] < 2Q and xs[i] < Q:
-//       t = prods[i-1] * xs[i] < 2Q²
-//       u < 2Q²/R + Q = 2×7340033²/2³² + 7340033 ≈ 25096 + 7340033 < 2Q ✓
+//     t = prods[i-1] * xs[i] < 2Q²
+//     u < 2Q²/R + Q = 2×7340033²/2³² + 7340033 ≈ 25096 + 7340033 < 2Q ✓
 //
 // Backward pass: inv = mulMontLazy(inv, oldXi) where oldXi < Q
 //   - inv starts < Q (from InvMont with reduce)
@@ -442,4 +526,3 @@ func BatchInvMont(xs []uint32, scratch []uint32) {
 		xs[0] = reduce(inv)
 	}
 }
-

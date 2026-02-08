@@ -431,6 +431,46 @@ Call-site implication:
   is more expensive than `MulMont`. So the gain comes from carrying lazy form across
   multiple operations and reducing only once at the boundary.
 
+#### 26. Pure-Plain `n=35` ILP2 Rewrite (No Montgomery Correction in Timed Path)
+For the plain-domain track, benchmarking must exclude Montgomery-domain correction
+work (`*R^2`, `ToMont`/`FromMont`) because those conversions are not part of the
+target design.
+
+Changes:
+- Added paired helpers in `field.go`:
+  - `mulPlainLazy2(a0,b0,a1,b1)` (2-way lazy Barrett)
+  - `mulPlainStrict2(a0,b0,a1,b1)` with inline two-lane branchless reduction
+- Rewrote `batchInvTreeNoZeroILP4_35PlainLazy` to use paired operations through
+  up-sweep/down-sweep/final writeback.
+
+Checks:
+- Functional tests pass (`TestBatchInvTreeNoZeroILP4_35PlainLazyMatches`, helper tests).
+- Assembly for `batchInvTreeNoZeroILP4_35PlainLazy` still has only two upfront
+  `panicSliceConvert` checks (no in-body bounds-check panics).
+
+Benchmarks (arm64, `-benchtime=3s`):
+- Before rewrite: `BenchmarkBatchInvTreeNoZeroILP4_35PlainLazy` ~149-150ns.
+- After rewrite: `BenchmarkBatchInvTreeNoZeroILP4_35PlainLazy` median ~140.7ns.
+- Relative improvement: ~6%.
+
+This is now slightly faster than current mont-domain direct kernel in the same run.
+
+#### 27. Corrected Folding for Fused 128-bit Reduction (Gemini Parallel Track)
+For a 128-bit value `x = hi*2^64 + lo`, with `R64 = 2^64 mod Q = 3338324`:
+
+- Naive one-fold truncate is UNSOUND:
+  - `naive = (lo + hi*R64) mod 2^64`
+  - Z3 finds counterexamples where `naive mod Q != x mod Q`.
+- Correct carry-aware two-fold is sound over the tested batch-inversion-fused range:
+  - `t = lo + hi*R64`
+  - `corr = (t mod 2^64) + floor(t/2^64)*R64`
+  - Then `corr mod Q == x mod Q` (Z3: `unsat` for mismatch in domain
+    `x <= (2Q-1)^4`, i.e., 96-bit worst-case fused product bound).
+
+Takeaway:
+- If exploring fused-grandchild multiplication paths, use carry-aware two-fold
+  folding before final `%Q`/Barrett reduction; do not use truncated one-fold.
+
 ### What Would Help Further
 
 At this point, pure Go optimizations are largely exhausted. The 5.8x speedup from baseline
