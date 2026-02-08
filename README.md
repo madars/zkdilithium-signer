@@ -65,9 +65,9 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.077 ms | 3.1 ms | 40x | 1.3x |
-| Sign | 19.8 ms | 3.41 ms | 461 ms | 135x | 5.8x |
-| Verify | 2.9 ms | 0.58 ms | 71.5 ms | 123x | 5.0x |
+| Gen | 0.10 ms | 0.076 ms | 3.1 ms | 41x | 1.3x |
+| Sign | 19.8 ms | 3.23 ms | 461 ms | 143x | 6.1x |
+| Verify | 2.9 ms | 0.52 ms | 71.5 ms | 138x | 5.6x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
 zkDilithium is ~250x slower, partly due to the STARK-friendly Poseidon hash, and partly because
@@ -132,6 +132,10 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 16. **Fixed-size Poseidon batch inversion path (n=35)** - Adds specialized no-zero tree inversion
     for Poseidon state width and removes an internal copy in that path. Improves Sign/Verify by
     another ~2-3% on top of previous tree-batch inversion improvements.
+
+17. **BCE-free fixed-index `n=35` batch inversion** - Rewrites the specialized Poseidon-width
+    path as constant-index code (no loop-indexed slice accesses), eliminating nearly all in-function
+    bounds-check branches in assembly (only upfront slice conversion checks remain).
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 

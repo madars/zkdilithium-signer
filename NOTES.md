@@ -359,6 +359,42 @@ Result: **No reliable additional gain** beyond the `n=35` specialization
 
 Reverted to keep API surface minimal.
 
+#### 24. Removing Pre-`reduce` Before Root `InvMont` (n=35 path)
+Tried changing the specialized path root inversion from:
+`InvMont(reduce(l6[0]))` to `InvMont(l6[0])`, attempting to carry lazy form longer.
+
+Result: **Regression**:
+- `BenchmarkBatchInvTreeCond35`: ~153ns -> ~158-160ns
+- `BenchmarkBatchInvTreeNoZeroILP4_35`: ~144-148ns -> ~150-153ns
+
+Likely cause: `InvMont` addition chain is tuned around canonical `<Q` inputs;
+feeding `<2Q` representatives increases value distribution and hurts downstream
+codegen/microarchitectural behavior enough to outweigh one removed `reduce`.
+
+Reverted.
+
+#### 25. Full Constant-Index Rewrite for `batchInvMontTreeNoZeroILP4_35`
+Rewrote the specialized `n=35` batch inversion routine as explicit fixed-index
+straight-line code (no loop-indexed slice accesses in the hot body), while keeping
+the same algorithm and lazy/strict boundary decisions.
+
+Assembly impact (`objdump`):
+- Bounds-check/panic stubs in this symbol dropped from dozens of `panicIndex` callsites
+  to only 2 upfront `panicSliceConvert` checks (for `(*[35]uint32)(xs)` and
+  `(*[38]uint32)(scratch)` conversions).
+- Symbol size dropped from ~1017 to ~841 assembly lines.
+- `mulMontLazy` constants (`Q`, `QInv`) are loaded once and reused across long stretches.
+
+Benchmarks after rewrite:
+- `BenchmarkBatchInvTreeCond35`: ~148-151ns
+- `BenchmarkBatchInvTreeNoZeroILP4_35`: ~147-148ns
+- End-to-end (`go test ./pkg/dilithium -bench 'Benchmark(Gen|Sign|Verify)$' -benchtime=2s -count=3`):
+  - Gen: ~0.073ms
+  - Sign: ~3.10ms avg
+  - Verify: ~0.51ms avg
+
+Status: kept.
+
 ### Profiling Breakdown (Final)
 
 Sign operation (~3.4ms):
@@ -374,6 +410,26 @@ All hot paths already use branchless operations:
 - MDS: 3-accumulator ILP with parallel MUL chains
 - NTT: uses Add/Sub which compile to CSEL
 - reduce: branchless sign-bit mask
+
+### Primitive Microbench (2026-02, arm64)
+
+`go test ./pkg/field -run '^$' -bench 'BenchmarkPrimitive(...)' -benchtime=2s -count=3`
+
+| Primitive | Median ns/op | Relative to MulMont |
+|-----------|--------------|---------------------|
+| `reduce` | 1.203 | 0.64x |
+| `Add` | 1.387 | 0.74x |
+| `Sub` | 1.348 | 0.72x |
+| `MontReduce` | 1.246 | 0.67x |
+| `mulMontLazy` | 1.807 | 0.97x |
+| `MulMont` | 1.872 | 1.00x |
+| `reduce(mulMontLazy(...))` | 2.021 | 1.08x |
+| `InvMont` | 45.04 | 24.1x |
+
+Call-site implication:
+- `mulMontLazy` alone is slightly cheaper than `MulMont`, but `reduce(mulMontLazy(...))`
+  is more expensive than `MulMont`. So the gain comes from carrying lazy form across
+  multiple operations and reducing only once at the boundary.
 
 ### What Would Help Further
 
