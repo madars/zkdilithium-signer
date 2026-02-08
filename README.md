@@ -65,9 +65,9 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.074 ms | 3.1 ms | 42x | 1.4x |
-| Sign | 19.8 ms | 3.4 ms | 461 ms | 136x | 5.8x |
-| Verify | 2.9 ms | 0.54 ms | 71.5 ms | 132x | 5.4x |
+| Gen | 0.10 ms | 0.077 ms | 3.1 ms | 40x | 1.3x |
+| Sign | 19.8 ms | 3.41 ms | 461 ms | 135x | 5.8x |
+| Verify | 2.9 ms | 0.58 ms | 71.5 ms | 123x | 5.0x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
 zkDilithium is ~250x slower, partly due to the STARK-friendly Poseidon hash, and partly because
@@ -125,6 +125,13 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 14. **MDS 3-accumulator ILP** - Fully unrolls 35-element MDS inner loop with 3 independent
     accumulator chains (s01, s23, s4) instead of serial MADD chain. Enables instruction-level
     parallelism across the 2+2+1 grouping pattern. MDS ~4% faster, Sign ~18% faster.
+
+15. **InvNTT loop-invariant hoist** - Hoists `inv2zMont := MulMont(Inv2Mont, z)` out of the
+    inner butterfly loop in `InvNTT`, removing redundant work per coefficient.
+
+16. **Fixed-size Poseidon batch inversion path (n=35)** - Adds specialized no-zero tree inversion
+    for Poseidon state width and removes an internal copy in that path. Improves Sign/Verify by
+    another ~2-3% on top of previous tree-batch inversion improvements.
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 

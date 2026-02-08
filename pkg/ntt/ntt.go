@@ -66,14 +66,14 @@ func InvNTT(cs *[field.N]uint32) {
 		for offset := 0; offset < field.N-layer; offset += 2 * layer {
 			z := InvZetasMont[zi]
 			zi++
+			// Invariant for this (layer, offset) block.
+			inv2zMont := field.MulMont(Inv2Mont, z)
 
 			for j := offset; j < offset+layer; j++ {
 				t := field.Sub(cs[j], cs[j+layer])
 				// MulMont(Inv2_M, sum) where sum is normal = Inv2 * sum (normal)
 				cs[j] = field.MulMont(Inv2Mont, field.Add(cs[j], cs[j+layer]))
-				// MulMont(Inv2_M, z_M) where both are Montgomery = (Inv2 * z)_M
 				// MulMont((Inv2*z)_M, t) where t is normal = Inv2 * z * t (normal)
-				inv2zMont := field.MulMont(Inv2Mont, z)
 				cs[j+layer] = field.MulMont(inv2zMont, t)
 			}
 		}

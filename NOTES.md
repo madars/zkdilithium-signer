@@ -137,6 +137,42 @@ Results: Gen 100μs → 76μs (**24% faster**), memory 39KB → 15.5KB (**60% sm
 - The 2+2+1 grouping matches ARM64's dual-issue capability for MUL/MADD.
 - Results: MDS 294ns → 279ns (~5%), Sign 4.0ms → 3.4ms (~18%), Verify 650μs → 540μs (~17%).
 
+#### 16. InvNTT Loop-Invariant Hoist (2026-02 revisit)
+- In `InvNTT`, `inv2zMont := MulMont(Inv2Mont, z)` is invariant for each
+  `(layer, offset)` block but was computed inside the inner butterfly loop.
+- Hoisted `inv2zMont` outside the inner `j` loop.
+- Controlled microbench A/B (same environment):
+  - Before: `BenchmarkInvNTT` **~2025-2036ns**
+  - After: `BenchmarkInvNTT` **~1738-1746ns**
+  - Improvement: **~14%** on isolated InvNTT.
+- End-to-end Sign/Verify impact is small (expected, since Poseidon dominates).
+
+#### 17. Fixed-Size BatchInvMontTreeNoZeroILP4 Specialization (`n=35`)
+- Poseidon always batch-inverts `PosT=35` elements. The generic
+  `BatchInvMontTreeNoZeroILP4` still computed dynamic layer metadata and
+  iterated over variable layer counts.
+- Added fixed-size fast path:
+  - `batchInvMontTreeNoZeroILP4_35` with pre-determined layers
+    `35 -> 18 -> 9 -> 5 -> 3 -> 2 -> 1`.
+  - `BatchInvMontTreeNoZeroILP4` now dispatches to this path when `len(xs)==35`.
+- Controlled A/B (`-benchtime=2s`, same environment):
+  - **Without** specialization: `Sign ~3.38-3.42ms`, `Verify ~558-561us`
+  - **With** specialization: `Sign ~3.29-3.31ms`, `Verify ~542-546us`
+  - Improvement: **~2.8% Sign**, **~2.9% Verify**.
+- Microbench improvement for batch inversion itself is larger (~10% range),
+  with smaller end-to-end impact due to other Poseidon costs.
+
+#### 18. Copy Elision in `batchInvMontTreeNoZeroILP4_35`
+- Initial fixed-size path still copied `xs -> scratch[:35]` before up-sweep.
+- Revised fast path uses `xs` directly as level-0 storage and keeps only upper
+  layers in scratch (`18+9+5+3+2+1 = 38` words).
+- This removes per-call `memmove` and shrinks specialized assembly
+  (`STEXT size 4064 -> 3984`, locals `0x48 -> 0x38`).
+- Benchmarks (`-benchtime=2s`, same environment):
+  - Before (fixed-size with copy): `Sign ~3.29-3.31ms`, `Verify ~542-546us`
+  - After (copy-elided): `Sign ~3.20-3.25ms`, `Verify ~531-545us`
+  - Additional gain: **~2-3% Sign** on top of #17.
+
 ### Optimizations That Did NOT Work
 
 #### 1. Solinas/Proth Reduction
@@ -303,6 +339,25 @@ that call overhead negates ILP benefits when functions can't inline.
 
 **Conclusion:** All hot-path functions already inline. The non-inlinable functions
 are complex algorithms where splitting would hurt performance.
+
+#### 22. Array-Pointer BCE Rewrite of `batchInvMontTreeNoZeroILP4_35`
+Tried replacing slice layer views with fixed array pointers (`*[35]uint32`,
+`*[18]uint32`, etc.) to force stronger bounds-check elimination.
+
+Result: **Regression** in both microbench and end-to-end:
+- BatchInv benchmarks moved back toward pre-specialization numbers.
+- Sign/Verify regressed versus the slice-based specialized version.
+
+Reverted.
+
+#### 23. Dedicated `BatchInvMontTreeCond35` Entry Point
+Tried adding a Poseidon-specific dispatch function and calling it from
+`poseidonRound`, bypassing generic `BatchInvMontTreeCond -> NoZeroILP4` call chain.
+
+Result: **No reliable additional gain** beyond the `n=35` specialization
+(differences were within noise / inconsistent across runs).
+
+Reverted to keep API surface minimal.
 
 ### Profiling Breakdown (Final)
 
