@@ -455,6 +455,13 @@ Benchmarks (arm64, `-benchtime=3s`):
 
 This is now slightly faster than current mont-domain direct kernel in the same run.
 
+Integration attempt (failed, reverted):
+- Temporarily dispatched production `BatchInvMontTreeNoZeroILP4(n=35)` to
+  `batchInvMontTreeNoZeroILP4_35LazyPlain`.
+- Microbench direct kernels were roughly comparable, but end-to-end `Sign`
+  regressed slightly in this environment (~3.20ms -> ~3.25ms).
+- Reverted dispatch; keep this path as optimization track only for now.
+
 #### 27. Corrected Folding for Fused 128-bit Reduction (Gemini Parallel Track)
 For a 128-bit value `x = hi*2^64 + lo`, with `R64 = 2^64 mod Q = 3338324`:
 
