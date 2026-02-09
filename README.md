@@ -65,9 +65,9 @@ rejection sampling variance:
 
 | Operation | Go | Go (optimized) | Python | vs Python | vs Go |
 |-----------|-----|----------------|--------|-----------|-------|
-| Gen | 0.10 ms | 0.080 ms | 3.1 ms | 39x | 1.3x |
-| Sign | 19.8 ms | 3.18 ms | 461 ms | 145x | 6.2x |
-| Verify | 2.9 ms | 0.55 ms | 71.5 ms | 130x | 5.3x |
+| Gen | 0.10 ms | 0.076 ms | 3.1 ms | 41x | 1.3x |
+| Sign | 19.8 ms | 3.12 ms | 461 ms | 148x | 6.3x |
+| Verify | 2.9 ms | 0.51 ms | 71.5 ms | 140x | 5.7x |
 
 *For comparison, pure Go Ed25519 (`go test -tags=purego`) achieves 0.020ms sign / 0.043ms verify.
 zkDilithium is ~250x slower, partly due to the STARK-friendly Poseidon hash, and partly because
@@ -83,8 +83,11 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
    exploiting Q-2 = 0b110\_11111111111111111111. Reduces operations from ~43
    to 30 per Inv() call.
 
-3. **Domain-specialized multiplication** - NTT kernels remain Montgomery-optimized,
-   while Poseidon uses a plain-domain lazy-Barrett path to avoid extra domain conversions.
+3. **Pure plain-domain arithmetic** - The entire hot path (NTT, Poseidon, batch
+   inversion, matrix-vector multiply) uses plain `% Q` arithmetic. No Montgomery
+   form anywhere — eliminates all ToMont/FromMont conversion overhead. The compiler
+   generates UMULH magic-number division for `% Q` with constant Q, which is the
+   same cost as Montgomery reduction.
 
 4. **Lazy reduction in hot chains** - Skip strict normalization inside multiplication
    chains (reduce only at required boundaries), lowering per-op overhead.
@@ -96,45 +99,30 @@ Go's Ed25519 has been refined over many years by expert cryptographers.*
 6. **Optimized Add/Sub** - Uses uint32/int32 arithmetic instead of uint64,
    avoiding unnecessary promotion since Q < 2^23.
 
-7. **MDS loop optimization** - Uses fixed-size array pointers to eliminate bounds
-   checks, unrolls inner loop by 5 (35 = 7 × 5, benchmarked faster than 7-unroll on ARM64).
+7. **MDS 3-accumulator ILP with full unrolling** - Fully unrolls 35-element MDS inner
+   loop with 3 independent accumulator chains (s01, s23, s4) in 7 groups of 5 (2+2+1
+   pattern). Uses fixed-size array pointers to eliminate bounds checks.
 
 8. **Zero-allocation Poseidon** - Reusable scratch buffers reduce allocations
    from ~7000 to ~91 per Sign.
 
 9. **Gen-specific optimizations** - Streaming XOF (reuse one rate-sized buffer instead of
-   allocating 1344 bytes per polynomial), precompute s1Hat (NTT once instead of K times),
-   and skip Montgomery form (use regular Mul for matrix-vector product). Results: 24%
-   faster, 60% less memory.
+   allocating 1344 bytes per polynomial), precompute s1Hat (NTT once instead of K times).
 
-10. **Branchless reduce** - Uses sign-bit mask instead of conditional branch for
-    reducing values from <2Q to <Q. Avoids ~50% branch misprediction.
+10. **Lazy matrix-vector multiply** - Accumulates L=4 products in uint64 with single
+    `% Q` reduction per coefficient, instead of L multiplications + (L-1) additions
+    with conditional subtractions. Precomputes NTT(y) once per rejection loop iteration.
 
-11. **Fused reduction in BatchInvMont** - Performs final reduction during backward
-    pass instead of separate O(n) loop, improving cache locality.
+11. **Conditional batch inversion dispatch + 4-pair ILP** - Uses root-product fallback to
+    detect zeros without a pre-scan. Dispatches to faster NoZero path when none found
+    (almost always). 4-pair unrolling in tree up-sweep/down-sweep for ILP.
 
-12. **Lazy matrix-vector multiply** - Accumulates L=4 products in uint64 with single
-    MontReduce per coefficient, instead of L MulMont + (L-1) Add with conditional subs.
-    Also precomputes NTT(y) once instead of K×L=16 times in Sign.
+12. **Fixed-size Poseidon batch inversion (n=35)** - Specialized fully-unrolled tree
+    inversion for Poseidon state width. Final layer uses compiler CSEL (`mulPlainStrict2`)
+    instead of manual branchless masks for strict reduction.
 
-13. **Conditional batch inversion dispatch + 4-pair ILP** - Scans for zeros before batch
-    inversion; dispatches to faster NoZero path when none found (almost always). Added 4-pair
-    unrolling in tree up-sweep/down-sweep for better instruction-level parallelism.
-    Batch inversion 212ns → 175ns (~17%), Sign ~8% faster.
-
-14. **MDS 3-accumulator ILP** - Fully unrolls 35-element MDS inner loop with 3 independent
-    accumulator chains (s01, s23, s4) instead of serial MADD chain. Enables instruction-level
-    parallelism across the 2+2+1 grouping pattern. MDS ~4% faster, Sign ~18% faster.
-
-15. **InvNTT loop-invariant hoist** - Hoists `inv2zMont := MulMont(Inv2Mont, z)` out of the
+13. **InvNTT loop-invariant hoist** - Hoists `inv2z := Mul(Inv2, z)` out of the
     inner butterfly loop in `InvNTT`, removing redundant work per coefficient.
-
-16. **Fixed-size Poseidon batch inversion path (n=35)** - Adds specialized tree inversion
-    for Poseidon state width and removes internal dynamic layer setup/copy overhead where possible.
-
-17. **Plain lazy pair-reduce tuning** - In the fixed-size plain batch inversion kernel,
-    strict leaf writeback now uses interleaved `mulPlainLazy2 + reduce2`, and the strict pair helper
-    is kept inlineable to avoid call overhead in hot paths.
 
 See [NOTES.md](NOTES.md) for detailed optimization journey and profiling analysis.
 

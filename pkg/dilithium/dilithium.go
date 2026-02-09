@@ -97,27 +97,20 @@ func Sign(sk, msg []byte) []byte {
 	key := sk[32:64]
 	tr := sk[64:96]
 
-	// Unpack s1, convert to Montgomery form
+	// Unpack s1 (normal form, no Montgomery conversion needed)
 	var s1 [field.L]poly.Poly
 	for i := 0; i < field.L; i++ {
 		s1[i] = encoding.UnpackPolyLeqEta(sk[96+i*96 : 96+(i+1)*96])
-		s1[i].ToMont()
 	}
 
-	// Unpack s2, convert to Montgomery form
+	// Unpack s2 (normal form)
 	var s2 [field.K]poly.Poly
 	for i := 0; i < field.K; i++ {
 		s2[i] = encoding.UnpackPolyLeqEta(sk[96+96*field.L+i*96 : 96+96*field.L+(i+1)*96])
-		s2[i].ToMont()
 	}
 
-	// Sample matrix A, convert to Montgomery form
+	// Sample matrix A (already in NTT domain, normal form)
 	Ahat := sampling.SampleMatrix(rho)
-	for i := 0; i < field.K; i++ {
-		for j := 0; j < field.L; j++ {
-			Ahat[i][j].ToMont()
-		}
-	}
 
 	// Compute mu using Poseidon
 	hMu := hash.NewPoseidon([]uint32{0})
@@ -126,7 +119,7 @@ func Sign(sk, msg []byte) []byte {
 	hMu.Write(encoding.BytesToFes(msg))
 	mu := hMu.Read(field.MuSize)
 
-	// Precompute NTT of secrets (Montgomery form)
+	// Precompute NTT of secrets (normal form, NTT is form-agnostic)
 	var s1Hat [field.L]poly.Poly
 	for i := 0; i < field.L; i++ {
 		s1Hat[i] = s1[i]
@@ -150,31 +143,23 @@ func Sign(sk, msg []byte) []byte {
 
 	yNonce := 0
 	for {
-		// Sample y, convert to Montgomery form and NTT
+		// Sample y and NTT (normal form throughout, NTT is form-agnostic)
 		y := sampling.SampleY(rho2, yNonce)
 		yNonce += field.L
 		var yHat [field.L]poly.Poly
 		for i := 0; i < field.L; i++ {
-			y[i].ToMont()
 			yHat[i] = y[i]
 			yHat[i].NTT()
 		}
 
-		// Compute w = A * y using lazy accumulation (Montgomery form)
-		var wMont [field.K]poly.Poly
-		poly.MatVecMulNTTLazy(&Ahat, &yHat, &wMont)
-		for i := 0; i < field.K; i++ {
-			wMont[i].InvNTT()
-		}
-
-		// Convert w from Montgomery for Decompose
+		// Compute w = A * y (normal form, lazy accumulation with %Q)
 		var w [field.K]poly.Poly
+		poly.MatVecMulNTTLazy(&Ahat, &yHat, &w)
 		for i := 0; i < field.K; i++ {
-			w[i] = wMont[i]
-			w[i].FromMont()
+			w[i].InvNTT()
 		}
 
-		// Decompose w
+		// Decompose w (already in normal form)
 		var w1 [field.K]poly.Poly
 		for i := 0; i < field.K; i++ {
 			_, w1[i] = w[i].Decompose()
@@ -190,36 +175,27 @@ func Sign(sk, msg []byte) []byte {
 		}
 		cTilde := hC.Read(field.CSize)
 
-		// Sample c from cTilde, convert to Montgomery form
+		// Sample c from cTilde
 		hBall := hash.NewPoseidon(append([]uint32{2}, cTilde...))
 		c := sampling.SampleInBall(hBall)
 		if c == nil {
 			continue // Rejection
 		}
-		c.ToMont()
 
-		// Compute cs2 = c * s2 (in NTT domain, Montgomery form)
+		// Compute cs2 = c * s2 (normal form throughout)
 		var cHat poly.Poly = *c
 		cHat.NTT()
 
-		var cs2Mont [field.K]poly.Poly
+		var cs2 [field.K]poly.Poly
 		for i := 0; i < field.K; i++ {
-			poly.MulNTT(&cHat, &s2Hat[i], &cs2Mont[i])
-			cs2Mont[i].InvNTT()
+			poly.MulNTT(&cHat, &s2Hat[i], &cs2[i])
+			cs2[i].InvNTT()
 		}
 
-		// r0 = w - cs2 (both need to be in same form)
-		// wMont and cs2Mont are both in Montgomery form
-		var r0Mont [field.K]poly.Poly
-		for i := 0; i < field.K; i++ {
-			poly.Sub(&wMont[i], &cs2Mont[i], &r0Mont[i])
-		}
-
-		// Convert r0 from Montgomery for Decompose and Norm
+		// r0 = w - cs2 (both in normal form)
 		var r0 [field.K]poly.Poly
 		for i := 0; i < field.K; i++ {
-			r0[i] = r0Mont[i]
-			r0[i].FromMont()
+			poly.Sub(&w[i], &cs2[i], &r0[i])
 		}
 
 		r0Decomposed := make([][field.N]uint32, field.K)
@@ -253,20 +229,13 @@ func Sign(sk, msg []byte) []byte {
 			continue
 		}
 
-		// Compute z = y + c*s1 (Montgomery form)
-		var zMont [field.L]poly.Poly
+		// Compute z = y + c*s1 (normal form throughout)
+		var z [field.L]poly.Poly
 		for i := 0; i < field.L; i++ {
 			var cs1 poly.Poly
 			poly.MulNTT(&cHat, &s1Hat[i], &cs1)
 			cs1.InvNTT()
-			poly.Add(&y[i], &cs1, &zMont[i])
-		}
-
-		// Convert z from Montgomery for Norm check and packing
-		var z [field.L]poly.Poly
-		for i := 0; i < field.L; i++ {
-			z[i] = zMont[i]
-			z[i].FromMont()
+			poly.Add(&y[i], &cs1, &z[i])
 		}
 
 		// Check norm of z (both fixed and buggy for compatibility)
@@ -325,22 +294,14 @@ func Verify(pk, msg, sig []byte) bool {
 		}
 	}
 
-	// Convert z to Montgomery form for NTT operations
-	var zMont [field.L]poly.Poly
-	for i := 0; i < field.L; i++ {
-		zMont[i] = z[i]
-		zMont[i].ToMont()
-	}
-
 	// Unpack public key
 	rho := pk[:32]
 	tPacked := pk[32:]
 
-	// Unpack t, convert to Montgomery form
-	var tMont [field.K]poly.Poly
+	// Unpack t (normal form, no Montgomery conversion needed)
+	var t [field.K]poly.Poly
 	for i := 0; i < field.K; i++ {
-		tMont[i] = encoding.UnpackPoly(tPacked[i*field.N*3 : (i+1)*field.N*3])
-		tMont[i].ToMont()
+		t[i] = encoding.UnpackPoly(tPacked[i*field.N*3 : (i+1)*field.N*3])
 	}
 
 	// Compute tr
@@ -353,57 +314,46 @@ func Verify(pk, msg, sig []byte) bool {
 	hMu.Write(encoding.BytesToFes(msg))
 	mu := hMu.Read(field.MuSize)
 
-	// Sample c from cTilde, convert to Montgomery form
+	// Sample c from cTilde
 	hBall := hash.NewPoseidon(append([]uint32{2}, cTilde...))
 	c := sampling.SampleInBall(hBall)
 	if c == nil {
 		return false
 	}
-	c.ToMont()
 
-	// Sample A, convert to Montgomery form
+	// Sample A (already in NTT domain, normal form)
 	Ahat := sampling.SampleMatrix(rho)
-	for i := 0; i < field.K; i++ {
-		for j := 0; j < field.L; j++ {
-			Ahat[i][j].ToMont()
-		}
-	}
 
-	// Compute Az - tc in NTT domain (Montgomery form)
+	// Compute Az - tc in NTT domain (normal form throughout)
 	var cHat poly.Poly = *c
 	cHat.NTT()
 
 	var zHat [field.L]poly.Poly
 	for i := 0; i < field.L; i++ {
-		zHat[i] = zMont[i]
+		zHat[i] = z[i]
 		zHat[i].NTT()
 	}
 
 	var tHat [field.K]poly.Poly
 	for i := 0; i < field.K; i++ {
-		tHat[i] = tMont[i]
+		tHat[i] = t[i]
 		tHat[i].NTT()
 	}
 
-	// Compute Az using lazy accumulation
+	// Compute Az using lazy accumulation (%Q reduction)
 	var Az [field.K]poly.Poly
 	poly.MatVecMulNTTLazy(&Ahat, &zHat, &Az)
 
 	// Compute w1 = Az - tc for each row
 	var w1 [field.K]poly.Poly
 	for i := 0; i < field.K; i++ {
-		// tc (Montgomery form)
 		var tc poly.Poly
 		poly.MulNTT(&tHat[i], &cHat, &tc)
 
-		// Az - tc (Montgomery form)
 		poly.Sub(&Az[i], &tc, &Az[i])
 		Az[i].InvNTT()
 
-		// Convert from Montgomery for Decompose
-		Az[i].FromMont()
-
-		// Decompose
+		// Already in normal form, decompose directly
 		_, w1[i] = Az[i].Decompose()
 	}
 

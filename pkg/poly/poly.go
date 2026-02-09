@@ -41,11 +41,10 @@ func (p *Poly) InvNTT() {
 }
 
 // MulNTT computes componentwise multiplication (for polynomials in NTT domain).
-// Uses Montgomery multiplication - both inputs should be in Montgomery form,
-// and the result will be in Montgomery form.
+// Inputs and output are in normal (plain) form.
 func MulNTT(a, b *Poly, result *Poly) {
 	for i := 0; i < field.N; i++ {
-		result[i] = field.MulMont(a[i], b[i])
+		result[i] = field.Mul(a[i], b[i])
 	}
 }
 
@@ -154,24 +153,23 @@ func Equal(a, b *Poly) bool {
 }
 
 // DotNTTLazy computes the dot product of L polynomials in NTT domain.
-// All inputs must be in NTT domain and Montgomery form.
-// Uses lazy accumulation: L multiplies + 1 MontReduce per coefficient
-// instead of L MulMont + (L-1) Add with conditional subtractions.
+// All inputs must be in NTT domain, normal (plain) form.
+// Uses lazy accumulation in uint64 with a single mod-Q reduction per coefficient.
 //
-// Computes: result[k] = Σ_j (a[j][k] * b[j][k]) in Montgomery form.
+// Computes: result[k] = Σ_j (a[j][k] * b[j][k]) mod Q in normal form.
 func DotNTTLazy(a, b *[field.L]Poly, result *Poly) {
 	for k := 0; k < field.N; k++ {
 		acc := uint64(a[0][k]) * uint64(b[0][k])
 		acc += uint64(a[1][k]) * uint64(b[1][k])
 		acc += uint64(a[2][k]) * uint64(b[2][k])
 		acc += uint64(a[3][k]) * uint64(b[3][k])
-		result[k] = field.MontReduce(acc)
+		result[k] = uint32(acc % field.Q)
 	}
 }
 
 // MatVecMulNTTLazy computes matrix-vector product A * v in NTT domain.
 // A is K×L matrix, v is L-element vector, result is K-element vector.
-// All inputs must be in NTT domain and Montgomery form.
+// All inputs must be in NTT domain, normal (plain) form.
 // Uses lazy accumulation for better performance.
 func MatVecMulNTTLazy(A *[field.K][field.L]Poly, v *[field.L]Poly, result *[field.K]Poly) {
 	for i := 0; i < field.K; i++ {

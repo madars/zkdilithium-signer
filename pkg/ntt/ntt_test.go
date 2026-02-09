@@ -5,32 +5,28 @@ import (
 	"zkdilithium-signer/pkg/field"
 )
 
-// Test ZetasMont values are correct Montgomery representations
+// Test Zetas values are correct
 func TestZetasFirst16(t *testing.T) {
-	// Expected normal-form zetas
 	expected := []uint32{
 		2306278, 2001861, 3926523, 5712452, 1922517, 5680261, 4961214, 7026628,
 		3353052, 3414003, 1291800, 3770003, 2188519, 44983, 6616885, 4899906,
 	}
 	for i, want := range expected {
-		// Convert from Montgomery to normal form for comparison
-		got := field.FromMont(ZetasMont[i])
-		if got != want {
-			t.Errorf("FromMont(ZetasMont[%d]) = %d, want %d", i, got, want)
+		if Zetas[i] != want {
+			t.Errorf("Zetas[%d] = %d, want %d", i, Zetas[i], want)
 		}
 	}
 }
 
-// Test InvZetasMont values are correct Montgomery representations
+// Test InvZetas values are correct
 func TestInvZetasFirst16(t *testing.T) {
 	expected := []uint32{
 		3141965, 4642089, 4848144, 7181330, 1276293, 6226173, 6371478, 1545565,
 		5830703, 4663853, 2915060, 2998944, 5640911, 2250107, 6697852, 5413710,
 	}
 	for i, want := range expected {
-		got := field.FromMont(InvZetasMont[i])
-		if got != want {
-			t.Errorf("FromMont(InvZetasMont[%d]) = %d, want %d", i, got, want)
+		if InvZetas[i] != want {
+			t.Errorf("InvZetas[%d] = %d, want %d", i, InvZetas[i], want)
 		}
 	}
 }
@@ -39,9 +35,8 @@ func TestInvZetasFirst16(t *testing.T) {
 func TestZetasComputed(t *testing.T) {
 	for i := 0; i < field.N; i++ {
 		expected := field.Exp(field.Zeta, uint32(field.Brv(uint8(i+1))))
-		got := field.FromMont(ZetasMont[i])
-		if got != expected {
-			t.Errorf("FromMont(ZetasMont[%d]) = %d, want %d", i, got, expected)
+		if Zetas[i] != expected {
+			t.Errorf("Zetas[%d] = %d, want %d", i, Zetas[i], expected)
 		}
 	}
 }

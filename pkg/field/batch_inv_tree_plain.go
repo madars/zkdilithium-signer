@@ -132,109 +132,57 @@ func batchInvTreeNoZeroILP4_35PlainLazyProd(xs []uint32, scratch []uint32) bool 
 	s[16], s[17] = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
 
 	// Final layer writes strictly reduced values.
-	var out0, out1 uint32
-
+	// Use mulPlainStrict2 (compiler CSEL) instead of mulPlainLazy2+reduce2 (manual mask).
 	parentInv = s[0]
-	leftVal = x[0]
-	rightVal = x[1]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[0], x[1] = reduce2(out0, out1)
+	x[0], x[1] = mulPlainStrict2(parentInv, x[1], parentInv, x[0])
 
 	parentInv = s[1]
-	leftVal = x[2]
-	rightVal = x[3]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[2], x[3] = reduce2(out0, out1)
+	x[2], x[3] = mulPlainStrict2(parentInv, x[3], parentInv, x[2])
 
 	parentInv = s[2]
-	leftVal = x[4]
-	rightVal = x[5]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[4], x[5] = reduce2(out0, out1)
+	x[4], x[5] = mulPlainStrict2(parentInv, x[5], parentInv, x[4])
 
 	parentInv = s[3]
-	leftVal = x[6]
-	rightVal = x[7]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[6], x[7] = reduce2(out0, out1)
+	x[6], x[7] = mulPlainStrict2(parentInv, x[7], parentInv, x[6])
 
 	parentInv = s[4]
-	leftVal = x[8]
-	rightVal = x[9]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[8], x[9] = reduce2(out0, out1)
+	x[8], x[9] = mulPlainStrict2(parentInv, x[9], parentInv, x[8])
 
 	parentInv = s[5]
-	leftVal = x[10]
-	rightVal = x[11]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[10], x[11] = reduce2(out0, out1)
+	x[10], x[11] = mulPlainStrict2(parentInv, x[11], parentInv, x[10])
 
 	parentInv = s[6]
-	leftVal = x[12]
-	rightVal = x[13]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[12], x[13] = reduce2(out0, out1)
+	x[12], x[13] = mulPlainStrict2(parentInv, x[13], parentInv, x[12])
 
 	parentInv = s[7]
-	leftVal = x[14]
-	rightVal = x[15]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[14], x[15] = reduce2(out0, out1)
+	x[14], x[15] = mulPlainStrict2(parentInv, x[15], parentInv, x[14])
 
 	parentInv = s[8]
-	leftVal = x[16]
-	rightVal = x[17]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[16], x[17] = reduce2(out0, out1)
+	x[16], x[17] = mulPlainStrict2(parentInv, x[17], parentInv, x[16])
 
 	parentInv = s[9]
-	leftVal = x[18]
-	rightVal = x[19]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[18], x[19] = reduce2(out0, out1)
+	x[18], x[19] = mulPlainStrict2(parentInv, x[19], parentInv, x[18])
 
 	parentInv = s[10]
-	leftVal = x[20]
-	rightVal = x[21]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[20], x[21] = reduce2(out0, out1)
+	x[20], x[21] = mulPlainStrict2(parentInv, x[21], parentInv, x[20])
 
 	parentInv = s[11]
-	leftVal = x[22]
-	rightVal = x[23]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[22], x[23] = reduce2(out0, out1)
+	x[22], x[23] = mulPlainStrict2(parentInv, x[23], parentInv, x[22])
 
 	parentInv = s[12]
-	leftVal = x[24]
-	rightVal = x[25]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[24], x[25] = reduce2(out0, out1)
+	x[24], x[25] = mulPlainStrict2(parentInv, x[25], parentInv, x[24])
 
 	parentInv = s[13]
-	leftVal = x[26]
-	rightVal = x[27]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[26], x[27] = reduce2(out0, out1)
+	x[26], x[27] = mulPlainStrict2(parentInv, x[27], parentInv, x[26])
 
 	parentInv = s[14]
-	leftVal = x[28]
-	rightVal = x[29]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[28], x[29] = reduce2(out0, out1)
+	x[28], x[29] = mulPlainStrict2(parentInv, x[29], parentInv, x[28])
 
 	parentInv = s[15]
-	leftVal = x[30]
-	rightVal = x[31]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[30], x[31] = reduce2(out0, out1)
+	x[30], x[31] = mulPlainStrict2(parentInv, x[31], parentInv, x[30])
 
 	parentInv = s[16]
-	leftVal = x[32]
-	rightVal = x[33]
-	out0, out1 = mulPlainLazy2(parentInv, rightVal, parentInv, leftVal)
-	x[32], x[33] = reduce2(out0, out1)
+	x[32], x[33] = mulPlainStrict2(parentInv, x[33], parentInv, x[32])
 
 	x[34] = reduce(s[17])
 	return true
