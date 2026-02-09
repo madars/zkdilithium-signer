@@ -226,6 +226,70 @@ func BenchmarkMDS2Row(b *testing.B) {
 	}
 }
 
+// BenchmarkMDSProd benchmarks the production 3-accumulator fully-unrolled MDS.
+func BenchmarkMDSProd(b *testing.B) {
+	state := make([]uint32, field.PosT)
+	scratch := make([]uint32, field.PosT)
+	for i := 0; i < field.PosT; i++ {
+		state[i] = uint32(i + 1)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(scratch, state)
+		scratchArr := (*[field.PosT]uint32)(scratch)
+		for row := 0; row < field.PosT; row++ {
+			var s01, s23, s4 uint64
+			inv := (*[field.PosT]uint32)(PosInv[row : row+field.PosT])
+			s01 += uint64(inv[0])*uint64(scratchArr[0]) + uint64(inv[1])*uint64(scratchArr[1])
+			s23 += uint64(inv[2])*uint64(scratchArr[2]) + uint64(inv[3])*uint64(scratchArr[3])
+			s4 += uint64(inv[4]) * uint64(scratchArr[4])
+			s01 += uint64(inv[5])*uint64(scratchArr[5]) + uint64(inv[6])*uint64(scratchArr[6])
+			s23 += uint64(inv[7])*uint64(scratchArr[7]) + uint64(inv[8])*uint64(scratchArr[8])
+			s4 += uint64(inv[9]) * uint64(scratchArr[9])
+			s01 += uint64(inv[10])*uint64(scratchArr[10]) + uint64(inv[11])*uint64(scratchArr[11])
+			s23 += uint64(inv[12])*uint64(scratchArr[12]) + uint64(inv[13])*uint64(scratchArr[13])
+			s4 += uint64(inv[14]) * uint64(scratchArr[14])
+			s01 += uint64(inv[15])*uint64(scratchArr[15]) + uint64(inv[16])*uint64(scratchArr[16])
+			s23 += uint64(inv[17])*uint64(scratchArr[17]) + uint64(inv[18])*uint64(scratchArr[18])
+			s4 += uint64(inv[19]) * uint64(scratchArr[19])
+			s01 += uint64(inv[20])*uint64(scratchArr[20]) + uint64(inv[21])*uint64(scratchArr[21])
+			s23 += uint64(inv[22])*uint64(scratchArr[22]) + uint64(inv[23])*uint64(scratchArr[23])
+			s4 += uint64(inv[24]) * uint64(scratchArr[24])
+			s01 += uint64(inv[25])*uint64(scratchArr[25]) + uint64(inv[26])*uint64(scratchArr[26])
+			s23 += uint64(inv[27])*uint64(scratchArr[27]) + uint64(inv[28])*uint64(scratchArr[28])
+			s4 += uint64(inv[29]) * uint64(scratchArr[29])
+			s01 += uint64(inv[30])*uint64(scratchArr[30]) + uint64(inv[31])*uint64(scratchArr[31])
+			s23 += uint64(inv[32])*uint64(scratchArr[32]) + uint64(inv[33])*uint64(scratchArr[33])
+			s4 += uint64(inv[34]) * uint64(scratchArr[34])
+			state[row] = uint32((s01 + s23 + s4) % field.Q)
+		}
+	}
+}
+
+// BenchmarkMDSSimpleLoop benchmarks naive single-acc loop MDS (no unrolling or ILP).
+func BenchmarkMDSSimpleLoop(b *testing.B) {
+	state := make([]uint32, field.PosT)
+	scratch := make([]uint32, field.PosT)
+	for i := 0; i < field.PosT; i++ {
+		state[i] = uint32(i + 1)
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		copy(scratch, state)
+		scratchArr := (*[field.PosT]uint32)(scratch)
+		for row := 0; row < field.PosT; row++ {
+			var acc uint64
+			inv := (*[field.PosT]uint32)(PosInv[row : row+field.PosT])
+			for j := 0; j < field.PosT; j++ {
+				acc += uint64(inv[j]) * uint64(scratchArr[j])
+			}
+			state[row] = uint32(acc % field.Q)
+		}
+	}
+}
+
 // Benchmark full poseidon round
 func BenchmarkPoseidonRound(b *testing.B) {
 	state := make([]uint32, field.PosT)

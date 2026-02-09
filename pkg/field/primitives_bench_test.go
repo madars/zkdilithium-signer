@@ -304,11 +304,8 @@ func TestReductionCandidates(t *testing.T) {
 		if got := reduceBarrett64(p); got != want {
 			t.Fatalf("reduceBarrett64 mismatch: a=%d b=%d got=%d want=%d", a, b, got, want)
 		}
-		if got := mulMontViaMod(a, b); got != MulMont(a, b) {
-			t.Fatalf("mulMontViaMod mismatch: a=%d b=%d got=%d want=%d", a, b, got, MulMont(a, b))
-		}
-		if got := mulMontViaBarrett(a, b); got != MulMont(a, b) {
-			t.Fatalf("mulMontViaBarrett mismatch: a=%d b=%d got=%d want=%d", a, b, got, MulMont(a, b))
+		if got := mulMontViaMod(a, b); got != mulMontViaBarrett(a, b) {
+			t.Fatalf("mulMontViaMod vs mulMontViaBarrett mismatch: a=%d b=%d got=%d want=%d", a, b, got, mulMontViaBarrett(a, b))
 		}
 	}
 }
@@ -341,102 +338,6 @@ func BenchmarkPrimitiveReduce(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		x = x*1664525 + 1013904223
 		primitiveSink = reduce(x % (2 * Q))
-	}
-}
-
-func BenchmarkPrimitiveMulMont(b *testing.B) {
-	x := uint32(1)
-	y := uint32(2)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x = x*1664525 + 1013904223
-		y = y*22695477 + 1
-		primitiveSink = MulMont(x%Q, y%Q)
-	}
-}
-
-func BenchmarkPrimitiveMulMontLazy(b *testing.B) {
-	x := uint32(1)
-	y := uint32(2)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x = x*1664525 + 1013904223
-		y = y*22695477 + 1
-		primitiveSink = mulMontLazy(x%(2*Q), y%(2*Q))
-	}
-}
-
-func BenchmarkPrimitiveMulMontLazyReduce(b *testing.B) {
-	x := uint32(1)
-	y := uint32(2)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x = x*1664525 + 1013904223
-		y = y*22695477 + 1
-		primitiveSink = reduce(mulMontLazy(x%(2*Q), y%(2*Q)))
-	}
-}
-
-func BenchmarkPrimitiveMontReduce(b *testing.B) {
-	x := uint64(1)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x = x*6364136223846793005 + 1442695040888963407
-		primitiveSink = MontReduce(x)
-	}
-}
-
-func BenchmarkPrimitiveInvMont(b *testing.B) {
-	x := uint32(1)
-	oneM := ToMont(1)
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x = x*1664525 + 1013904223
-		v := x % Q
-		if v == 0 {
-			v = 1
-		}
-		primitiveSink = InvMont(v)
-	}
-	primitiveSink ^= oneM
-}
-
-func BenchmarkPrimitiveBatchRootMont(b *testing.B) {
-	as, bs := buildBenchInputsLazy()
-	idx := 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		primitiveSink = InvMont(reduce(mulMontLazy(as[idx], bs[idx])))
-		idx++
-		if idx == benchInputSize {
-			idx = 0
-		}
-	}
-}
-
-func BenchmarkPrimitiveBatchRootPlainLazy(b *testing.B) {
-	as, bs := buildBenchInputsLazy()
-	idx := 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		primitiveSink = mulPlainLazy(invPlainLazy(mulPlainLazy(as[idx], bs[idx])), r2ModQ)
-		idx++
-		if idx == benchInputSize {
-			idx = 0
-		}
-	}
-}
-
-func BenchmarkPrimitiveInvMontLazyInput(b *testing.B) {
-	as, _ := buildBenchInputsLazy()
-	idx := 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		primitiveSink = InvMont(reduce(as[idx]))
-		idx++
-		if idx == benchInputSize {
-			idx = 0
-		}
 	}
 }
 
@@ -570,32 +471,6 @@ func BenchmarkPrimitiveMulMontViaMod1(b *testing.B) {
 	}
 }
 
-func BenchmarkPrimitiveMulMontInputs(b *testing.B) {
-	as, bs := buildBenchInputs()
-	idx := 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		primitiveSink = MulMont(as[idx], bs[idx])
-		idx++
-		if idx == benchInputSize {
-			idx = 0
-		}
-	}
-}
-
-func BenchmarkPrimitiveMulMontLazyInputs(b *testing.B) {
-	as, bs := buildBenchInputs()
-	idx := 0
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		primitiveSink = mulMontLazy(as[idx], bs[idx])
-		idx++
-		if idx == benchInputSize {
-			idx = 0
-		}
-	}
-}
-
 func BenchmarkPrimitiveMulPlainLazy2Inputs(b *testing.B) {
 	as, bs := buildBenchInputs()
 	idx := 0
@@ -615,21 +490,6 @@ func BenchmarkPrimitiveMulPlainLazy2Inputs(b *testing.B) {
 	primitiveSink = s0 ^ s1
 }
 
-func BenchmarkKernelChain1MulMontLazy(b *testing.B) {
-	as, bs := buildBenchInputs()
-	x := as[0]
-	idx := 1
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x = mulMontLazy(x, bs[idx])
-		idx++
-		if idx == benchInputSize {
-			idx = 0
-		}
-	}
-	primitiveSink = x
-}
-
 func BenchmarkKernelChain1MulMontViaMod(b *testing.B) {
 	as, bs := buildBenchInputs()
 	x := as[0]
@@ -643,24 +503,6 @@ func BenchmarkKernelChain1MulMontViaMod(b *testing.B) {
 		}
 	}
 	primitiveSink = x
-}
-
-func BenchmarkKernelChain4MulMontLazy(b *testing.B) {
-	as, bs := buildBenchInputs()
-	x0, x1, x2, x3 := as[0], as[1], as[2], as[3]
-	idx := 4
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		x0 = mulMontLazy(x0, bs[idx+0])
-		x1 = mulMontLazy(x1, bs[idx+1])
-		x2 = mulMontLazy(x2, bs[idx+2])
-		x3 = mulMontLazy(x3, bs[idx+3])
-		idx += 4
-		if idx+3 >= benchInputSize {
-			idx = 0
-		}
-	}
-	primitiveSink = x0 + x1 + x2 + x3
 }
 
 func BenchmarkKernelChain4MulMontViaMod(b *testing.B) {
@@ -752,18 +594,6 @@ func BenchmarkKernelChain4MulMontViaMod1Interleaved(b *testing.B) {
 		}
 	}
 	primitiveSink = x0 + x1 + x2 + x3
-}
-
-func BenchmarkKernelPrefix35MulMontLazy(b *testing.B) {
-	as, _ := buildBenchInputs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		p := as[0]
-		for j := 1; j < 35; j++ {
-			p = mulMontLazy(p, as[j])
-		}
-		primitiveSink = p
-	}
 }
 
 func BenchmarkKernelPrefix35MulMontViaMod1(b *testing.B) {

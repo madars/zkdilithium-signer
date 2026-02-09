@@ -227,64 +227,10 @@ func Decompose(r uint32) (r0 int32, r1 uint32) {
 	return r0, (r - uint32(r0)) / (2 * Gamma2)
 }
 
-// --- Montgomery Multiplication ---
-// Montgomery form: a_M = a * R mod Q where R = 2^32
-// MulMont(a_M, b) = a * b (normal form) - useful when one operand is precomputed
-// MulMont(a_M, b_M) = (a * b)_M (Montgomery form)
-
 const (
-	// montgomeryQInvNeg = -Q^(-1) mod 2^32
-	// Satisfies: Q * montgomeryQInvNeg ≡ -1 (mod 2^32)
-	montgomeryQInvNeg uint32 = 7340031
-
-	// r2ModQ = 2^64 mod Q, used for Montgomery conversions.
-	r2ModQ uint32 = 3338324
-
 	// barrettMu64Floor = floor(2^64 / Q).
 	barrettMu64Floor uint64 = ^uint64(0) / Q
 )
-
-// MulMont computes Montgomery reduction of a*b.
-// If a is in Montgomery form (a_M = a*R mod Q) and b is normal:
-//
-//	MulMont(a_M, b) = a * b (normal form)
-//
-// If both are in Montgomery form:
-//
-//	MulMont(a_M, b_M) = (a * b)_M (Montgomery form)
-func MulMont(a, b uint32) uint32 {
-	// t = a * b
-	t := uint64(a) * uint64(b)
-
-	// m = (t_lo * Q') mod 2^32
-	m := uint32(t) * montgomeryQInvNeg
-
-	// u = (t + m*Q) >> 32
-	u := (t + uint64(m)*Q) >> 32
-
-	// Conditional subtraction
-	if u >= Q {
-		u -= Q
-	}
-	return uint32(u)
-}
-
-// mulMontLazy is MulMont without final conditional subtraction.
-// Output is < 2Q when inputs < 2Q.
-//
-// Safety analysis for Q = 7340033, R = 2^32:
-// - For inputs a, b < 2Q: t = a*b < 4Q² ≈ 2.15×10^14 < 2^48
-// - Montgomery reduction: u = (t + m*Q) >> 32 where m*Q < R*Q < 2^55
-// - Upper bound: u < (4Q²/R) + Q ≈ 50192 + 7340033 < 2Q ✓
-//
-// This is safe for chains of multiplications (e.g., InvMont, BatchInvMont)
-// as long as we reduce to < Q before operations requiring strict bounds.
-func mulMontLazy(a, b uint32) uint32 {
-	t := uint64(a) * uint64(b)
-	m := uint32(t) * montgomeryQInvNeg
-	u := (t + uint64(m)*Q) >> 32
-	return uint32(u)
-}
 
 // reduce brings a value < 2Q back to < Q in constant time (branchless).
 // Uses a sign-bit mask to avoid branch misprediction (~50% taken for uniform input).
@@ -296,23 +242,6 @@ func reduce(a uint32) uint32 {
 	// If mask is -1: returns b + Q = a
 	// If mask is 0:  returns b = a - Q
 	return b + (Q & mask)
-}
-
-// MontReduce performs Montgomery reduction on a uint64 value.
-// Used for lazy reduction: accumulate products in uint64, reduce once.
-// If input is sum of (a_M * b_M) values, result is in Montgomery form.
-func MontReduce(t uint64) uint32 {
-	// m = (t_lo * Q') mod 2^32
-	m := uint32(t) * montgomeryQInvNeg
-
-	// u = (t + m*Q) >> 32
-	u := (t + uint64(m)*Q) >> 32
-
-	// Conditional subtraction
-	if u >= Q {
-		u -= Q
-	}
-	return uint32(u)
 }
 
 // reduceBarrett64Lazy computes a lazy representative of p mod Q.
@@ -364,7 +293,7 @@ func mulPlainStrict2(a0, b0, a1, b1 uint32) (r0, r1 uint32) {
 	return l0, l1
 }
 
-// invPlainLazy mirrors the optimized addition chain of InvMont using plain-domain
+// invPlainLazy computes a^(Q-2) mod Q using an optimized addition chain with plain-domain
 // lazy multiplication internally, with a single final canonical reduction.
 func invPlainLazy(a uint32) uint32 {
 	if a == 0 {
@@ -406,134 +335,3 @@ func invPlainLazy(a uint32) uint32 {
 	return reduce(res)
 }
 
-// ToMont converts a to Montgomery form: a_M = a * R mod Q
-func ToMont(a uint32) uint32 {
-	// a * R mod Q = a * 2^32 mod Q
-	// We compute this as MulMont(a, R^2 mod Q)
-	return MulMont(a, r2ModQ)
-}
-
-// FromMont converts from Montgomery form: a = a_M * R^(-1) mod Q
-func FromMont(aM uint32) uint32 {
-	return MulMont(aM, 1)
-}
-
-// InvMont computes the modular inverse in Montgomery form.
-// If input is a_M = a*R mod Q, output is (a^(-1))_M = a^(-1)*R mod Q.
-// Uses Fermat's little theorem: a^(-1) = a^(Q-2) mod Q.
-// All operations use MulMont so the Montgomery form is preserved.
-//
-// Uses lazy reduction internally: all 30 multiplications use mulMontLazy,
-// with a single reduce() at the end. This saves 29 conditional subtractions.
-func InvMont(aM uint32) uint32 {
-	if aM == 0 {
-		return 0
-	}
-
-	// Q-2 = 7340031
-	// Addition chain from: addchain search -add 10 -double 7 7340031
-	// Source: https://github.com/mmcloughlin/addchain
-	// 29 ops (22 squares + 7 multiplies), cost 224 with add=10, double=7
-
-	_10 := mulMontLazy(aM, aM)
-	_11 := mulMontLazy(aM, _10)
-	_1100 := mulMontLazy(_11, _11)
-	_1100 = mulMontLazy(_1100, _1100)
-	_1111 := mulMontLazy(_11, _1100)
-	_1100000 := mulMontLazy(_1100, _1100)
-	_1100000 = mulMontLazy(_1100000, _1100000)
-	_1100000 = mulMontLazy(_1100000, _1100000)
-	_1101111 := mulMontLazy(_1111, _1100000)
-
-	// i23 = ((_1101111 << 4 + _1111) << 4 + _1111) << 4
-	i23 := mulMontLazy(_1101111, _1101111)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, _1111)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, _1111)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-	i23 = mulMontLazy(i23, i23)
-
-	// return = (_1111 + i23) << 4 + _1111
-	res := mulMontLazy(_1111, i23)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, res)
-	res = mulMontLazy(res, _1111)
-
-	return reduce(res)
-}
-
-// BatchInvMont computes the modular inverse of each element in place.
-// All inputs and outputs are in Montgomery form.
-// Uses Montgomery's trick: n inversions with 1 inversion + 3(n-1) multiplications.
-// Elements that are 0 remain 0.
-//
-// WARNING: scratch must not alias xs (overlapping memory will corrupt results).
-// scratch must have length >= len(xs) and is used to avoid allocation.
-//
-// Lazy reduction safety proof for chained multiplications:
-//
-// Precondition: All xs[i] inputs are < Q (normalized Montgomery form).
-//
-// Forward pass: prods[i] = mulMontLazy(prods[i-1], xs[i])
-//   - Invariant: prods[i] < 2Q
-//   - Base: prods[0] = xs[0] < Q < 2Q ✓
-//   - Induction: If prods[i-1] < 2Q and xs[i] < Q:
-//     t = prods[i-1] * xs[i] < 2Q²
-//     u < 2Q²/R + Q = 2×7340033²/2³² + 7340033 ≈ 25096 + 7340033 < 2Q ✓
-//
-// Backward pass: inv = mulMontLazy(inv, oldXi) where oldXi < Q
-//   - inv starts < Q (from InvMont with reduce)
-//   - Recurrence: if inv < A and x < Q, then next inv < AQ/R + Q
-//   - Fixed point: A = QR/(R-Q) ≈ 7352594 for our parameters
-//   - So inv converges to ~7352594 < 2Q throughout the backward pass ✓
-func BatchInvMont(xs []uint32, scratch []uint32) {
-	n := len(xs)
-	if n == 0 {
-		return
-	}
-
-	// Use scratch for prefix products (lazy reduction, values < 2Q)
-	prods := scratch[:n]
-	prods[0] = xs[0]
-	if prods[0] == 0 {
-		prods[0] = ToMont(1) // 1 in Montgomery form
-	}
-	for i := 1; i < n; i++ {
-		if xs[i] == 0 {
-			prods[i] = prods[i-1]
-		} else {
-			prods[i] = mulMontLazy(prods[i-1], xs[i])
-		}
-	}
-
-	// Invert the final product (InvMont handles lazy input, returns < Q)
-	inv := InvMont(reduce(prods[n-1]))
-
-	// Backward pass with fused reduction: finalize xs[i] immediately using
-	// MulMont (strict) instead of mulMontLazy. This saves O(n) memory accesses
-	// by avoiding a separate reduction loop while keeping the cache hot.
-	for i := n - 1; i > 0; i-- {
-		if xs[i] == 0 {
-			continue
-		}
-		oldXi := xs[i]
-		// Use strict MulMont: xs[i] is finalized to < Q immediately
-		xs[i] = MulMont(inv, prods[i-1])
-		// Keep inv lazy (< 2Q) for the internal chain
-		inv = mulMontLazy(inv, oldXi)
-	}
-	if xs[0] != 0 {
-		// inv is < 2Q from the lazy chain, reduce to < Q
-		xs[0] = reduce(inv)
-	}
-}

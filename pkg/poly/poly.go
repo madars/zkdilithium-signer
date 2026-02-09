@@ -48,20 +48,6 @@ func MulNTT(a, b *Poly, result *Poly) {
 	}
 }
 
-// ToMont converts polynomial to Montgomery form in place.
-func (p *Poly) ToMont() {
-	for i := 0; i < field.N; i++ {
-		p[i] = field.ToMont(p[i])
-	}
-}
-
-// FromMont converts polynomial from Montgomery form in place.
-func (p *Poly) FromMont() {
-	for i := 0; i < field.N; i++ {
-		p[i] = field.FromMont(p[i])
-	}
-}
-
 // SchoolbookMul computes a * b using schoolbook multiplication.
 // Returns (quotient, remainder) where a * b = quotient * (x^256 + 1) + remainder.
 func SchoolbookMul(a, b *Poly) (q, r Poly) {
